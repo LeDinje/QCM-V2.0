@@ -30,6 +30,7 @@ quizId: null,
   endAt: 0,
   tick: null,
   antiCheatArmed: false,
+  finished: false, // verrou: empeche d'enregistrer 2 fois le resultat
 
   // Trust/anti-cheat replacement state
   trust: { events: [], lostCount: 0, totalOutMs: 0 },
@@ -477,6 +478,11 @@ function prev(){
 
 // --- Finish & save ---
 function finish(endedBy){
+  // verrou anti double-enregistrement (ex: chrono qui se declenche apres une fin manuelle)
+  if (state.finished) return;
+  state.finished = true;
+  // stoppe le minuteur s'il tourne encore
+  if (state.tick){ clearInterval(state.tick); state.tick = null; }
   // disarm anti-cheat
   state.antiCheatArmed = false;
   // flush any pending off-window period

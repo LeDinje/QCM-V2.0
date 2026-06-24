@@ -348,7 +348,7 @@ document.addEventListener('click', async (e) => {
   }
   if (action === 'delete') {
     if (!confirm('Supprimer ce QCM et toutes ses questions ?')) return;
-    const qs = await getDocs(collection(db, 'quizzes', quizIdForQuestions, 'questions'));
+    const qs = await getDocs(collection(db, 'quizzes', id, 'questions'));
     for (const qdoc of qs.docs) await deleteDoc(doc(db, 'quizzes', id, 'questions', qdoc.id));
     await deleteDoc(doc(db, 'quizzes', id));
     if (currentQuizId === id) {
