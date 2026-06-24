@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pôle Sud QCM – Candidat</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/js/candidate.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <a class="logo" href="/"><img src="/assets/logo-polesud.png" alt="Pôle Sud"> <span>Portail</span></a>
+      <div class="small">Candidat</div>
+    </div>
+    <div class="card" id="card-setup">
+      <h1>Démarrer un QCM</h1>
+      <div class="grid-2">
+        <div>
+          <label>Votre prénom & nom</label><br>
+          <input id="candidateName" placeholder="Ex : Jane Doe">
+        </div>
+        <div>
+          <label>Choisir un QCM</label><br>
+          <select id="quizSelect"></select>
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn" id="startBtn">Démarrer le QCM</button>
+        <span id="quizMeta" class="small"></span>
+      </div>
+    </div>
+
+    <div class="card" id="card-quiz" style="display:none">
+      <div class="row" style="justify-content:space-between">
+        <div><b id="quizTitle"></b></div>
+        <div id="timer" class="timer"></div>
+      </div>
+      <div id="questionBox" style="margin-top:12px"></div>
+      <div class="row" style="margin-top:12px">
+        <button id="prevBtn" class="btn-outline">← Précédent</button>
+        <button id="nextBtn" class="btn">Suivant →</button>
+      </div>
+    </div>
+
+    <div class="card" id="card-results" style="display:none">
+      <h1>Résultat</h1>
+      <p id="scoreText" style="font-size:22px; font-weight:800;"></p>
+      <div class="row" style="margin-top:12px">
+        <a class="btn btn-pill" href="/candidate">Refaire un QCM</a>
+        <a class="btn-outline btn-pill" href="/">Accueil</a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

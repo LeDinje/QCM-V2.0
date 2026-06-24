@@ -1,0 +1,40 @@
+// Firestore security rules for QCM Pôle Sud starter (v3)
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // Public quizzes and questions: readable by tous
+    match /quizzes/{quizId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin();
+      match /questions/{questionId} {
+        allow read: if true;
+        allow create, update, delete: if isAdmin();
+      }
+    }
+
+    // Results: candidats écrivent leurs propres résultats (auth anonyme ok)
+    match /results/{resultId} {
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow read: if isAdmin();
+      allow delete: if isAdmin();
+      allow update: if isAdmin();
+    }
+
+    // Admins collection:
+    match /admins/{uid} {
+      // Seul l'utilisateur connecté peut lire son propre doc admin
+      allow read: if isSignedIn() && request.auth.uid == uid;
+      // La création/modification/suppression d'admins se fait uniquement depuis la console Firebase
+      allow create, update, delete: if false;
+    }
+  }
+}

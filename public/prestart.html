@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Avant de commencer</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>⏳ Ce QCM est chronométré</h1>
+      <p class="small" id="info"></p>
+      <ul>
+        </ul>
+      <div class="row" style="margin-top:12px">
+        <a id="backBtn" class="btn-outline btn-pill" href="/candidate">Retour</a>
+        <button id="startBtn" class="btn btn-pill">Commencer le test</button>
+      </div>
+      <div id="msg" class="small" style="margin-top:8px"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import { firebaseApp } from "./js/common.js";
+    import { getFirestore, doc, getDoc } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+    const db = getFirestore(firebaseApp);
+    const qs = new URLSearchParams(location.search);
+    const quizId = qs.get('quizId');
+    const name = qs.get('name') || '';
+
+    const infoEl = document.getElementById('info');
+    const durEl = document.getElementById('duration');
+    const msgEl = document.getElementById('msg');
+    const startBtn = document.getElementById('startBtn');
+
+    function setMsg(t){ msgEl.textContent = t || ''; }
+
+    async function load(){
+      if (!quizId){ setMsg("Quiz inconnu."); return; }
+      try{
+        const snap = await getDoc(doc(db, 'quizzes', quizId));
+        if (!snap.exists()){ setMsg("QCM introuvable."); return; }
+        const q = snap.data();
+        const tEnabled = !!q.timerEnabled;
+        const tMin = Number(q.timerMinutes||0);
+        infoEl.textContent = tEnabled ? `Le QCM sélectionné sera chronométré.` : `Le QCM sélectionné n'est pas chronométré.`;
+        durEl.textContent = tEnabled && tMin>0 ? `${tMin} minutes` : "—";
+        sessionStorage.setItem("antiCheatEnabled", "1");
+      }catch(e){
+        console.error(e);
+        setMsg("Erreur lors du chargement des informations du QCM.");
+      }
+    }
+
+    startBtn.addEventListener('click', ()=>{
+      const url = `/candidate?quizId=${encodeURIComponent(quizId)}&name=${encodeURIComponent(name)}&start=1`;
+      location.href = url;
+    });
+
+    load();
+  </script>
+</body>
+</html>

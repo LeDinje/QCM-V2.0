@@ -1,0 +1,16 @@
+# Cache et logs Firebase
+.firebase/
+firebase-debug.log
+*-debug.log
+
+# Fichiers systeme Windows / OneDrive
+Thumbs.db
+Desktop.ini
+desktop.ini
+
+# Dossiers d'editeur de code
+.vscode/
+.idea/
+
+# Dependances (si jamais tu en ajoutes plus tard)
+node_modules/

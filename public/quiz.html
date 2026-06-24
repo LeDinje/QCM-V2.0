@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>QCM — Démarrage</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="card">
+    <header class="header">
+      <img src="assets/logo.png" class="logo" width="42" height="42" alt="Logo" />
+      <div class="titles">
+        <h1>Lancement du QCM</h1>
+        <p class="muted">Cette page est un placeholder. Branche ton vrai quiz.html si différent.</p>
+      </div>
+    </header>
+    <section class="grid">
+      <div id="params" class="muted"></div>
+      <div class="actions">
+        <a href="candidate.html" class="btn btn-secondary">Retour</a>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const qs = new URLSearchParams(location.search);
+    const quizId = qs.get('quizId');
+    const name = qs.get('name');
+    document.getElementById('params').textContent = `quizId=${quizId || '—'} | name=${name || '—'}`;
+  </script>
+</body>
+</html>
