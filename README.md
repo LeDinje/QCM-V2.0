@@ -130,16 +130,3 @@ public/
 > Certains fichiers (`prestart.html`, `quiz.html`, `quiz-anti-cheat.js`) datent d'une version antérieure « patch » et ne sont plus le cœur de l'application, mais sont conservés pour référence.
 
 ---
-
-## Versioning
-
-Ce projet utilise **Git** avec un dépôt distant **privé** sur **GitHub** : https://github.com/LeDinje/QCM-V2.0
-Un commit (point de sauvegarde) est créé à chaque évolution significative.
-
-### Sauvegarder ses modifications
-Depuis le dossier du projet, dans un terminal :
-```powershell
-git add -A
-git commit -m "Décris ici ce qui a changé"
-git push
-```
