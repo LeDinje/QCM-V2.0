@@ -234,8 +234,8 @@ a{ color:var(--accent2); text-decoration:none; }
 /* 2) Contour neon qui tourne autour des gros boutons de l'accueil, au survol */
 @property --neon-angle{ syntax:'<angle>'; initial-value:0deg; inherits:false; }
 @keyframes neonSpin{ to { --neon-angle:360deg; } }
-.action-row .btn{ position:relative; --neon-angle:0deg; isolation:isolate; }
-.action-row .btn::before{
+.neon-hover{ position:relative; --neon-angle:0deg; isolation:isolate; }
+.neon-hover::before{
   content:"";
   position:absolute; inset:-2px;
   border-radius:inherit;
@@ -247,11 +247,11 @@ a{ color:var(--accent2); text-decoration:none; }
   filter: drop-shadow(0 0 4px #8ecbff);
   opacity:0; transition:opacity .3s ease; pointer-events:none;
 }
-.action-row .btn:hover::before{ opacity:1; animation: neonSpin 2.2s linear infinite; }
+.neon-hover:hover::before{ opacity:1; animation: neonSpin 2.2s linear infinite; }
 
 /* Accessibilite : pas d'animation si l'utilisateur a demande a reduire les mouvements */
 @media (prefers-reduced-motion: reduce){
   .brand img{ animation:none; }
-  .action-row .btn:hover::before{ animation:none; }
+  .neon-hover:hover::before{ animation:none; }
 }
 /* =================== FIN EFFETS NEON =================== */
