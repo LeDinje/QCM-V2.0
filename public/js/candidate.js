@@ -156,8 +156,16 @@ function loadQuizzes(){
         id: d.id,
         title: q.title || "Sans titre",
         timer: Number(q.timerMinutes || 0),
-        desc: q.description || ""
+        desc: q.description || "",
+        orderIndex: (typeof q.orderIndex === "number") ? q.orderIndex : null
       });
+    });
+    // meme ordre personnalise que l'admin (orderIndex), sinon par titre
+    opts.sort(function(a,b){
+      var ao = (typeof a.orderIndex === "number") ? a.orderIndex : 1e9;
+      var bo = (typeof b.orderIndex === "number") ? b.orderIndex : 1e9;
+      if (ao !== bo) return ao - bo;
+      return String(a.title).localeCompare(String(b.title));
     });
     var esc = function(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); };
     var html = '<option value="">— Sélectionner un QCM —</option>';

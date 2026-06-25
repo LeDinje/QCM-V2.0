@@ -1,4 +1,4 @@
-import { auth, db, firebaseApp, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy,
+import { auth, db, firebaseApp, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, writeBatch,
          adminLogin, adminRegister, adminLogout, onAuthStateChanged, serverTimestamp } from "./common.js";
 import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
 
@@ -39,6 +39,7 @@ const ui = {
 let currentQuizId = null;
 let currentQuestions = [];
 let editingQuestionId = null; // id de la question en cours d'edition (null = mode ajout)
+let quizOrderIds = []; // ordre courant des QCM (pour les fleches monter/descendre)
 let unsubQuestions = null;
 let unsubResults = null;
 
@@ -276,8 +277,17 @@ async function bootData() {
     const summaryRows = [];
     for (const d of snap.docs) {
       const q = d.data(); q.id = d.id;
-      opts.push({ id: d.id, title: q.title || '(Sans titre)', timer: q.timerMinutes || 0, description: q.description || '' });
+      opts.push({ id: d.id, title: q.title || '(Sans titre)', timer: q.timerMinutes || 0, description: q.description || '', orderIndex: (typeof q.orderIndex === 'number') ? q.orderIndex : null });
     }
+
+    // Tri par ordre personnalise (orderIndex) ; les QCM sans ordre defini passent a la fin (tries par titre)
+    opts.sort((a, b) => {
+      const ao = (typeof a.orderIndex === 'number') ? a.orderIndex : 1e9;
+      const bo = (typeof b.orderIndex === 'number') ? b.orderIndex : 1e9;
+      if (ao !== bo) return ao - bo;
+      return a.title.localeCompare(b.title);
+    });
+    quizOrderIds = opts.map(o => o.id);
 
     // If none exist: create one automatically and return (next snapshot will handle UI)
     if (opts.length === 0) {
@@ -318,6 +328,8 @@ async function bootData() {
           <div class="small">Questions: ${qCount} • Resultats: ${resCount}</div>
         </div>
         <div class="row">
+          <button data-action="quizUp" data-id="${o.id}" title="Monter">↑</button>
+          <button data-action="quizDown" data-id="${o.id}" title="Descendre">↓</button>
           <button data-action="select" data-id="${o.id}">Editer</button>
           <button class="btn-danger" data-action="delete" data-id="${o.id}">Supprimer</button>
         </div>
@@ -351,6 +363,8 @@ document.addEventListener('click', async (e) => {
     const q = currentQuestions.find(x => x.id === id);
     if (q) startEditQuestion(q);
   }
+  if (action === 'quizUp') { moveQuiz(id, 'up'); }
+  if (action === 'quizDown') { moveQuiz(id, 'down'); }
   if (action === 'delete') {
     if (!confirm('Supprimer ce QCM et toutes ses questions ?')) return;
     const qs = await getDocs(collection(db, 'quizzes', id, 'questions'));
@@ -718,6 +732,27 @@ function cancelEditMode(){
 
 const cancelEditBtn = document.getElementById('cancelEditBtn');
 if (cancelEditBtn) cancelEditBtn.addEventListener('click', cancelEditMode);
+
+// === Reorganisation des QCM : monte ou descend un QCM et enregistre l'ordre (orderIndex) ===
+async function moveQuiz(id, dir){
+  const ids = quizOrderIds.slice();
+  const i = ids.indexOf(id);
+  if (i < 0) return;
+  const j = (dir === 'up') ? i - 1 : i + 1;
+  if (j < 0 || j >= ids.length) return;
+  // echange les deux positions
+  const tmp = ids[i]; ids[i] = ids[j]; ids[j] = tmp;
+  // enregistre le nouvel ordre (0,1,2,...) pour tous les QCM en une seule operation
+  try {
+    const batch = writeBatch(db);
+    ids.forEach((qid, k) => batch.update(doc(db, 'quizzes', qid), { orderIndex: k }));
+    await batch.commit();
+    // l'affichage se rafraichit tout seul via onSnapshot
+  } catch (e) {
+    console.error('[reorder quizzes]', e);
+    alert('Reorganisation impossible : ' + (e && (e.code || e.message) ? (e.code || e.message) : e));
+  }
+}
 
 // Boot
 bootData();
