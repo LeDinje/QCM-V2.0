@@ -279,3 +279,22 @@ a{ color:var(--accent2); text-decoration:none; }
 /* le contenu de l'accueil passe au-dessus du fond de mots */
 .container{ position:relative; z-index:1; }
 /* ===== fin fond typographique ===== */
+
+/* ===== Hublot : bulle vitree autour du logo + boutons de l'accueil ===== */
+.hublot{
+  display:flex; flex-direction:column; align-items:center; gap:22px;
+  padding:48px 56px;
+  max-width:90vw;
+  border-radius:48px;
+  background:rgba(11,18,32,.62);                 /* assombrit le fond derriere */
+  -webkit-backdrop-filter:blur(7px);
+  backdrop-filter:blur(7px);                      /* floute le mur de mots derriere */
+  border:2px solid rgba(142,203,255,.45);         /* cerclage bleu clair (neon) */
+  box-shadow:
+    0 0 40px rgba(142,203,255,.18),               /* lueur exterieure */
+    inset 0 0 40px rgba(0,0,0,.35);               /* profondeur interieure facon hublot */
+}
+@media (max-width:600px){
+  .hublot{ padding:32px 24px; border-radius:32px; }
+}
+/* ===== fin hublot ===== */
