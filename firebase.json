@@ -8,6 +8,7 @@
     "rewrites": [
       { "source": "/admin", "destination": "/admin.html" },
       { "source": "/candidate", "destination": "/candidate.html" },
+      { "source": "/patchnote", "destination": "/patchnote.html" },
       { "source": "**", "destination": "/index.html" }
     ],
     "headers": [

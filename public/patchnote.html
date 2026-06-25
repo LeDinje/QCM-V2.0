@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pôle Sud QCM – Patch Notes</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="stylesheet" href="/styles.css">
+  <style>
+    /* Styles propres a la page Patch Notes */
+    .pn-version{ margin-bottom:22px; }
+    .pn-version h2{ color:var(--ink); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .pn-ver-tag{
+      background:linear-gradient(135deg, var(--accent), var(--accent2));
+      color:#061016; font-weight:800; padding:4px 12px; border-radius:999px; font-size:15px;
+    }
+    .pn-date{ font-size:13px; color:var(--muted); font-weight:400; }
+    .pn-list{ list-style:none; padding:0; margin:10px 0 0; display:grid; gap:8px; }
+    .pn-list li{ display:flex; gap:10px; align-items:flex-start; line-height:1.5; }
+    .pn-chip{
+      flex-shrink:0; font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px;
+      text-transform:uppercase; letter-spacing:.3px; margin-top:2px;
+    }
+    .pn-add{ background:rgba(34,211,238,.15); color:#22d3ee; border:1px solid rgba(34,211,238,.4); }
+    .pn-fix{ background:rgba(239,68,68,.15); color:#f87171; border:1px solid rgba(239,68,68,.4); }
+    .pn-imp{ background:rgba(168,162,255,.15); color:#a5b4fc; border:1px solid rgba(168,162,255,.4); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <a class="logo" href="/"><img src="/assets/logo-polesud.png" alt="Pôle Sud"> <span>Portail</span></a>
+      <a class="logo" href="/">← Retour à l'accueil</a>
+      <div class="small">Patch Notes</div>
+    </div>
+
+    <div class="card">
+      <h1>📝 Notes de version</h1>
+      <p class="small">Historique des ajouts, corrections et améliorations de la plateforme QCM.</p>
+
+      <!--
+        ====== COMMENT AJOUTER UNE NOUVELLE VERSION ======
+        Copier un bloc <div class="pn-version"> ... </div> et le placer EN HAUT de la liste
+        (la version la plus récente en premier). Pour chaque ligne, utiliser une pastille :
+          <span class="pn-chip pn-add">Ajout</span>          -> nouvelle fonctionnalité
+          <span class="pn-chip pn-fix">Correction</span>     -> bug corrigé
+          <span class="pn-chip pn-imp">Amélioration</span>   -> amélioration / interface
+        ===================================================
+      -->
+
+      <div class="pn-version">
+        <h2><span class="pn-ver-tag">v2.3</span> Interface &amp; Patch Notes <span class="pn-date">— 25/06/2026</span></h2>
+        <ul class="pn-list">
+          <li><span class="pn-chip pn-add">Ajout</span> Cette page « Patch Notes », accessible depuis l'accueil.</li>
+          <li><span class="pn-chip pn-imp">Amélioration</span> Fond de page légèrement éclairci pour plus de confort visuel.</li>
+          <li><span class="pn-chip pn-imp">Amélioration</span> Page centrale élargie (plus d'espace de travail).</li>
+          <li><span class="pn-chip pn-imp">Amélioration</span> Boutons « Éditer / Supprimer » toujours alignés (plus d'empilement sur les titres longs).</li>
+        </ul>
+      </div>
+
+      <div class="pn-version">
+        <h2><span class="pn-ver-tag">v2.2</span> Édition des questions <span class="pn-date">— 25/06/2026</span></h2>
+        <ul class="pn-list">
+          <li><span class="pn-chip pn-add">Ajout</span> Bouton « Éditer » sur chaque question (espace admin) : modification de l'intitulé, des réponses et de la bonne réponse.</li>
+        </ul>
+      </div>
+
+      <div class="pn-version">
+        <h2><span class="pn-ver-tag">v2.1</span> Corrections <span class="pn-date">— 25/06/2026</span></h2>
+        <ul class="pn-list">
+          <li><span class="pn-chip pn-fix">Correction</span> Le bouton « Supprimer » d'un QCM ne fonctionnait pas.</li>
+          <li><span class="pn-chip pn-fix">Correction</span> Un résultat pouvait être enregistré en double sur les QCM chronométrés.</li>
+        </ul>
+      </div>
+
+      <div class="pn-version">
+        <h2><span class="pn-ver-tag">v2.0</span> Version de base</h2>
+        <ul class="pn-list">
+          <li><span class="pn-chip pn-add">Ajout</span> Espace candidat : connexion anonyme, QCM chronométrés, réponses mélangées, option « Autres », images dans les questions.</li>
+          <li><span class="pn-chip pn-add">Ajout</span> Espace admin : création/édition de QCM, gestion des questions, résultats détaillés par candidat.</li>
+          <li><span class="pn-chip pn-add">Ajout</span> Indice de confiance « Trust » : suivi anti-triche silencieux pendant le test.</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</body>
+</html>

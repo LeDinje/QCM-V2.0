@@ -1,5 +1,5 @@
 :root{
-  --bg:#0b1220; --card:#101827; --ink:#e5e7eb; --muted:#9ca3af;
+  --bg:#111b30; --card:#101827; --ink:#e5e7eb; --muted:#9ca3af;
   --accent:#3b82f6; --accent2:#22d3ee; --danger:#ef4444;
 }
 
@@ -23,7 +23,7 @@ body::before{
   z-index:-1;
   background:radial-gradient(
     1200px 600px at 50% -10%,
-    #0f1a33 0%,
+    #1a2742 0%,
     var(--bg) 50%
   );
 }
