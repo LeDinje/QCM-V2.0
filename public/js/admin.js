@@ -408,8 +408,8 @@ async function loadQuiz(id) {
   const rows = currentQuestions.map(q => {
     const opts = (q.options || []).map((o, i) => i === q.correctIndex ? ('<b>' + o + '</b>') : o).join(' • ');
     return `<div class="item qrow" data-id="${q.id}" draggable="true">
-      <div><b>${q.text}</b><div class="small">${opts}</div></div>
-      <div class="row" style="gap:6px">
+      <div style="min-width:0"><b>${q.text}</b><div class="small">${opts}</div></div>
+      <div class="row" style="gap:6px; flex-wrap:nowrap; flex-shrink:0">
         <button data-action="editQuestion" data-id="${q.id}">Éditer</button>
         <button class="btn-danger" data-action="delQuestion" data-id="${currentQuizId}::${q.id}">Supprimer</button>
       </div>
