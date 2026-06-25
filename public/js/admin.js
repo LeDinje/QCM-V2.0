@@ -399,6 +399,8 @@ async function loadQuiz(id) {
     if (unsubResults) unsubResults();
     return;
   }
+  // garde le menu deroulant du haut synchronise avec le QCM en cours d'edition
+  if (ui.quizSelectAdmin) ui.quizSelectAdmin.value = id;
   const dataSnap = await getDoc(doc(db, 'quizzes', id));
   const data = dataSnap.data() || {};
   ui.qTitle.value = data.title || '';
