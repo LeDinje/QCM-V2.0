@@ -18,6 +18,25 @@ var els = {
   scoreText: document.getElementById("scoreText"),
 };
 
+// === Easter egg : nom d'exemple aleatoire (figures connues de l'informatique), change a chaque F5 ===
+(function setRandomNamePlaceholder(){
+  try {
+    var famousNames = [
+      "Jane Doe",
+      "Ada Lovelace", "Alan Turing", "Grace Hopper", "Linus Torvalds",
+      "Dennis Ritchie", "Ken Thompson", "Tim Berners-Lee", "Margaret Hamilton",
+      "Donald Knuth", "Guido van Rossum", "Brian Kernighan", "Vint Cerf",
+      "Edsger Dijkstra", "Claude Shannon", "Bjarne Stroustrup", "James Gosling",
+      "Richard Stallman", "Steve Wozniak", "Katherine Johnson", "Radia Perlman",
+      "Barbara Liskov", "John von Neumann", "Hedy Lamarr", "Anita Borg", "Larry Wall"
+    ];
+    if (els.name) {
+      var pick = famousNames[Math.floor(Math.random() * famousNames.length)];
+      els.name.placeholder = "Ex : " + pick;
+    }
+  } catch (e) {}
+})();
+
 // --- State ---
 var state = {
   otherText: {},
