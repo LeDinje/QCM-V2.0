@@ -8,30 +8,8 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
-  <!-- Fond typographique : valeurs de l'entreprise en lettres ajourees (contour blanc) -->
-  <div class="value-cloud" aria-hidden="true">
-    <span style="top:7%;left:5%;font-size:54px;transform:rotate(-8deg);opacity:.15">Innovation</span>
-    <span style="top:17%;left:58%;font-size:40px;transform:rotate(6deg);opacity:.2">Proximité</span>
-    <span style="top:4%;left:37%;font-size:30px;transform:rotate(3deg);opacity:.26">Expertise</span>
-    <span style="top:29%;left:10%;font-size:46px;transform:rotate(-5deg);opacity:.17">Confiance</span>
-    <span style="top:13%;left:80%;font-size:28px;transform:rotate(10deg);opacity:.26">Réactivité</span>
-    <span style="top:39%;left:69%;font-size:50px;transform:rotate(-6deg);opacity:.15">Engagement</span>
-    <span style="top:52%;left:6%;font-size:38px;transform:rotate(8deg);opacity:.22">Qualité</span>
-    <span style="top:5%;left:77%;font-size:44px;transform:rotate(-10deg);opacity:.18">Écoute</span>
-    <span style="top:62%;left:28%;font-size:34px;transform:rotate(5deg);opacity:.24">Sécurité</span>
-    <span style="top:72%;left:54%;font-size:48px;transform:rotate(-4deg);opacity:.15">Performance</span>
-    <span style="top:85%;left:8%;font-size:30px;transform:rotate(7deg);opacity:.26">Accompagnement</span>
-    <span style="top:25%;left:39%;font-size:26px;transform:rotate(-3deg);opacity:.27">Disponibilité</span>
-    <span style="top:45%;left:43%;font-size:56px;transform:rotate(4deg);opacity:.12">Rigueur</span>
-    <span style="top:88%;left:63%;font-size:40px;transform:rotate(-8deg);opacity:.2">Passion</span>
-    <span style="top:57%;left:78%;font-size:30px;transform:rotate(9deg);opacity:.26">Sur-mesure</span>
-    <span style="top:78%;left:31%;font-size:44px;transform:rotate(-6deg);opacity:.18">Infogérance</span>
-    <span style="top:33%;left:83%;font-size:32px;transform:rotate(6deg);opacity:.24">Bienveillance</span>
-    <span style="top:92%;left:40%;font-size:36px;transform:rotate(-5deg);opacity:.22">Agilité</span>
-    <span style="top:11%;left:21%;font-size:34px;transform:rotate(4deg);opacity:.24">Transparence</span>
-    <span style="top:49%;left:88%;font-size:60px;transform:rotate(-10deg);opacity:.12">ESN</span>
-    <span style="top:68%;left:13%;font-size:30px;transform:rotate(7deg);opacity:.26">Supervision</span>
-  </div>
+  <!-- Fond typographique : mur de valeurs en lettres ajourees (rempli par script) -->
+  <div class="value-cloud" aria-hidden="true"><div class="wall" id="valueWall"></div></div>
 
   <div class="container">
     <div class="landing">
@@ -49,5 +27,21 @@
       </div>
     </div>
   </div>
+
+  <script>
+    // Remplit le fond avec un "mur" des valeurs, repete et melange, pour couvrir toute la page
+    (function(){
+      var words = ["Innovation","Proximité","Expertise","Confiance","Réactivité","Engagement",
+        "Qualité","Écoute","Sécurité","Performance","Accompagnement","Disponibilité","Rigueur",
+        "Passion","Sur-mesure","Infogérance","Bienveillance","Agilité","Transparence","ESN","Supervision"];
+      function shuffle(a){ a=a.slice(); for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; } return a; }
+      var el = document.getElementById('valueWall');
+      if(!el) return;
+      var SEP = "   •   ";
+      var block = "";
+      for(var i=0;i<60;i++){ block += shuffle(words).join(SEP) + SEP; }
+      el.textContent = block;
+    })();
+  </script>
 </body>
 </html>

@@ -261,15 +261,20 @@ a{ color:var(--accent2); text-decoration:none; }
   position:fixed; inset:0; z-index:0;
   overflow:hidden; pointer-events:none; user-select:none;
 }
-.value-cloud span{
-  position:absolute;
-  white-space:nowrap;
+.value-cloud .wall{
+  /* mur de mots : lignes justifiees qui remplissent toute la page */
+  margin:0;
   font-weight:800;
-  letter-spacing:.5px;
+  font-size:clamp(20px, 2.8vw, 40px);
+  line-height:1.35;
+  letter-spacing:1px;
+  text-transform:uppercase;
+  text-align:justify;
+  text-align-last:justify;          /* justifie aussi la derniere ligne */
+  word-spacing:.15em;
   color:transparent;                 /* interieur = fond (lettres ajourees) */
-  -webkit-text-stroke:1px #ffffff;    /* contour blanc */
-  text-stroke:1px #ffffff;
-  transform-origin:center;
+  -webkit-text-stroke:1px rgba(255,255,255,.22);  /* contour blanc */
+  text-stroke:1px rgba(255,255,255,.22);
 }
 /* le contenu de l'accueil passe au-dessus du fond de mots */
 .container{ position:relative; z-index:1; }
