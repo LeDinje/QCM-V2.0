@@ -255,3 +255,22 @@ a{ color:var(--accent2); text-decoration:none; }
   .neon-hover:hover::before{ animation:none; }
 }
 /* =================== FIN EFFETS NEON =================== */
+
+/* ===== Fond typographique de l'accueil (valeurs en lettres ajourees) ===== */
+.value-cloud{
+  position:fixed; inset:0; z-index:0;
+  overflow:hidden; pointer-events:none; user-select:none;
+}
+.value-cloud span{
+  position:absolute;
+  white-space:nowrap;
+  font-weight:800;
+  letter-spacing:.5px;
+  color:transparent;                 /* interieur = fond (lettres ajourees) */
+  -webkit-text-stroke:1px #ffffff;    /* contour blanc */
+  text-stroke:1px #ffffff;
+  transform-origin:center;
+}
+/* le contenu de l'accueil passe au-dessus du fond de mots */
+.container{ position:relative; z-index:1; }
+/* ===== fin fond typographique ===== */
