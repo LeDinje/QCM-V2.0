@@ -138,7 +138,14 @@ a{ color:var(--accent2); text-decoration:none; }
   align-items:center;
   gap:10px;
 }
-.logo img{ height:40px; }
+.logo img{
+  height:40px;
+  /* contour bleu clair + legere lueur pour faire ressortir le logo sur fond sombre */
+  filter:
+    drop-shadow(1px 0 0 #8ecbff) drop-shadow(-1px 0 0 #8ecbff)
+    drop-shadow(0 1px 0 #8ecbff) drop-shadow(0 -1px 0 #8ecbff)
+    drop-shadow(0 0 5px rgba(142,203,255,.75));
+}
 
 .grid-2{ display:grid; grid-template-columns:1fr; gap:16px; }
 @media(min-width:900px){
@@ -158,7 +165,11 @@ a{ color:var(--accent2); text-decoration:none; }
 
 .brand img{
   height:86px;
-  filter: drop-shadow(0 8px 16px rgba(0,0,0,.35));
+  /* contour bleu clair + lueur (logo principal de l'accueil) */
+  filter:
+    drop-shadow(1px 0 0 #8ecbff) drop-shadow(-1px 0 0 #8ecbff)
+    drop-shadow(0 1px 0 #8ecbff) drop-shadow(0 -1px 0 #8ecbff)
+    drop-shadow(0 0 10px rgba(142,203,255,.6));
 }
 
 .brand h1{
