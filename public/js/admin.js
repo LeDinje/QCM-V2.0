@@ -38,6 +38,7 @@ const ui = {
 
 let currentQuizId = null;
 let currentQuestions = [];
+let editingQuestionId = null; // id de la question en cours d'edition (null = mode ajout)
 let unsubQuestions = null;
 let unsubResults = null;
 
@@ -346,6 +347,10 @@ document.addEventListener('click', async (e) => {
   if (action === 'select') {
     loadQuiz(id);
   }
+  if (action === 'editQuestion') {
+    const q = currentQuestions.find(x => x.id === id);
+    if (q) startEditQuestion(q);
+  }
   if (action === 'delete') {
     if (!confirm('Supprimer ce QCM et toutes ses questions ?')) return;
     const qs = await getDocs(collection(db, 'quizzes', id, 'questions'));
@@ -404,7 +409,10 @@ async function loadQuiz(id) {
     const opts = (q.options || []).map((o, i) => i === q.correctIndex ? ('<b>' + o + '</b>') : o).join(' • ');
     return `<div class="item qrow" data-id="${q.id}" draggable="true">
       <div><b>${q.text}</b><div class="small">${opts}</div></div>
-      <div><button class="btn-danger" data-action="delQuestion" data-id="${currentQuizId}::${q.id}">Supprimer</button></div>
+      <div class="row" style="gap:6px">
+        <button data-action="editQuestion" data-id="${q.id}">Éditer</button>
+        <button class="btn-danger" data-action="delQuestion" data-id="${currentQuizId}::${q.id}">Supprimer</button>
+      </div>
     </div>`;
   }).join('');
   ui.questionsList.innerHTML = rows;
@@ -561,6 +569,32 @@ ui.addQuestionBtn.addEventListener('click', async () => {
     return;
   }
 
+  // === MODE EDITION : mettre a jour la question existante ===
+  if (editingQuestionId) {
+    try {
+      const qDocRef = doc(db, 'quizzes', currentQuizId, 'questions', editingQuestionId);
+      // on ne touche qu'au texte, aux reponses et a l'index : otherEnabled/imageUrl sont preserves
+      await updateDoc(qDocRef, { text, options, correctIndex });
+      const imgInputE = document.getElementById('qImage');
+      const fileE = imgInputE && imgInputE.files && imgInputE.files[0];
+      if (fileE) {
+        try {
+          const storage = getStorage(firebaseApp);
+          const sRef = storageRef(storage, `question-images/${currentQuizId}/${editingQuestionId}`);
+          await uploadBytes(sRef, fileE);
+          const imageUrl = await getDownloadURL(sRef);
+          await updateDoc(qDocRef, { imageUrl });
+        } catch (e) { console.error('[IMAGE UPDATE FAILED]', e); }
+      }
+      cancelEditMode();
+      alert('Question mise a jour.');
+    } catch (e) {
+      console.error('[update question]', e);
+      alert('Mise a jour impossible : ' + (e && (e.code || e.message) ? (e.code || e.message) : e));
+    }
+    return;
+  }
+
   const imgInput = document.getElementById('qImage');
   const file = imgInput && imgInput.files && imgInput.files[0];
 
@@ -648,6 +682,42 @@ function renderCandidateDetail(r){
     closeBtn._wired = true;
   }
 }
+
+// === Edition d'une question : remplit le formulaire et bascule en mode "mise a jour" ===
+function startEditQuestion(q){
+  editingQuestionId = q.id;
+  ui.qText.value = q.text || '';
+  const opts = q.options || [];
+  ui.opt0.value = opts[0] || '';
+  ui.opt1.value = opts[1] || '';
+  ui.opt2.value = opts[2] || '';
+  ui.opt3.value = opts[3] || '';
+  ui.opt3.disabled = false;
+  if (ui.otherEnabled) ui.otherEnabled.checked = false;
+  ui.correctIndex.value = (typeof q.correctIndex === 'number') ? q.correctIndex : 0;
+  ui.addQuestionBtn.textContent = 'Mettre à jour la question';
+  const title = document.getElementById('qFormTitle'); if (title) title.textContent = '✏️ Modifier la question';
+  const cancel = document.getElementById('cancelEditBtn'); if (cancel) cancel.style.display = '';
+  if (ui.qText.scrollIntoView) ui.qText.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  ui.qText.focus();
+}
+
+// === Annule l'edition et remet le formulaire en mode "ajout" ===
+function cancelEditMode(){
+  editingQuestionId = null;
+  ui.qText.value = '';
+  ui.opt0.value = ''; ui.opt1.value = ''; ui.opt2.value = ''; ui.opt3.value = '';
+  ui.opt3.disabled = false;
+  if (ui.otherEnabled) ui.otherEnabled.checked = false;
+  ui.correctIndex.value = 0;
+  const imgInput = document.getElementById('qImage'); if (imgInput) imgInput.value = '';
+  ui.addQuestionBtn.textContent = 'Ajouter';
+  const title = document.getElementById('qFormTitle'); if (title) title.textContent = 'Ajouter une question';
+  const cancel = document.getElementById('cancelEditBtn'); if (cancel) cancel.style.display = 'none';
+}
+
+const cancelEditBtn = document.getElementById('cancelEditBtn');
+if (cancelEditBtn) cancelEditBtn.addEventListener('click', cancelEditMode);
 
 // Boot
 bootData();

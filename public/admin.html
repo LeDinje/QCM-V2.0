@@ -70,7 +70,7 @@
         <h2>Questions du QCM sélectionné</h2>
         <div id="questionsList" class="list"></div>
         <div class="card" style="margin-top:12px">
-          <h3>Ajouter une question</h3>
+          <h3 id="qFormTitle">Ajouter une question</h3>
           <input id="qText" placeholder="Intitulé de la question" style="width:100%; margin-bottom:8px;">
           <div style="margin-bottom:10px">
             <label class="small" style="display:block;margin-bottom:6px;">Image (optionnelle)</label>
@@ -92,6 +92,7 @@
             <label class="small">Index de la bonne réponse (0-3)</label>
             <input id="correctIndex" type="number" min="0" max="3" value="0" style="width:100px">
             <button class="btn" id="addQuestionBtn">Ajouter</button>
+            <button id="cancelEditBtn" style="display:none">Annuler l'édition</button>
           </div>
         </div>
       </div>
