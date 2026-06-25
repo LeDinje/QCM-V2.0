@@ -39,7 +39,6 @@ const ui = {
 let currentQuizId = null;
 let currentQuestions = [];
 let editingQuestionId = null; // id de la question en cours d'edition (null = mode ajout)
-let quizOrderIds = []; // ordre courant des QCM (pour les fleches monter/descendre)
 let unsubQuestions = null;
 let unsubResults = null;
 
@@ -287,7 +286,6 @@ async function bootData() {
       if (ao !== bo) return ao - bo;
       return a.title.localeCompare(b.title);
     });
-    quizOrderIds = opts.map(o => o.id);
 
     // If none exist: create one automatically and return (next snapshot will handle UI)
     if (opts.length === 0) {
@@ -315,27 +313,27 @@ async function bootData() {
     }
 
     // Summary rows (needs counts)
+    // On lit TOUS les resultats une seule fois (au lieu d'une fois par QCM) -> beaucoup plus rapide
+    const allResults = await getDocs(collection(db, 'results'));
     for (const o of opts) {
       const qs = await getDocs(collection(db, 'quizzes', o.id, 'questions'));
-      const resSnap = await getDocs(query(collection(db, 'results'))); // client-side filter for demo scale
-      const resCount = resSnap.docs.filter(x => (x.data().quizId === o.id)).length;
+      const resCount = allResults.docs.filter(x => (x.data().quizId === o.id)).length;
       const qCount = qs.size;
-      summaryRows.push(`<div class="item">
-        <div>
-          <b>${o.title}</b>
+      summaryRows.push(`<div class="item quizrow" data-id="${o.id}" draggable="true" style="cursor:move">
+        <div style="min-width:0">
+          <b>⠿ ${o.title}</b>
           <div class="small">${o.description}</div>
           <div class="small">Timer: ${o.timer > 0 ? 'Oui (' + o.timer + ' min)' : 'Non'}</div>
           <div class="small">Questions: ${qCount} • Resultats: ${resCount}</div>
         </div>
-        <div class="row">
-          <button data-action="quizUp" data-id="${o.id}" title="Monter">↑</button>
-          <button data-action="quizDown" data-id="${o.id}" title="Descendre">↓</button>
+        <div class="row" style="flex-wrap:nowrap; flex-shrink:0">
           <button data-action="select" data-id="${o.id}">Editer</button>
           <button class="btn-danger" data-action="delete" data-id="${o.id}">Supprimer</button>
         </div>
       </div>`);
     }
     ui.quizzesSummary.innerHTML = summaryRows.join('') || '<div class="small">Aucun QCM.</div>';
+    enableQuizDragAndDrop();
   });
 
   // Immediate load on change
@@ -363,8 +361,6 @@ document.addEventListener('click', async (e) => {
     const q = currentQuestions.find(x => x.id === id);
     if (q) startEditQuestion(q);
   }
-  if (action === 'quizUp') { moveQuiz(id, 'up'); }
-  if (action === 'quizDown') { moveQuiz(id, 'down'); }
   if (action === 'delete') {
     if (!confirm('Supprimer ce QCM et toutes ses questions ?')) return;
     const qs = await getDocs(collection(db, 'quizzes', id, 'questions'));
@@ -733,25 +729,43 @@ function cancelEditMode(){
 const cancelEditBtn = document.getElementById('cancelEditBtn');
 if (cancelEditBtn) cancelEditBtn.addEventListener('click', cancelEditMode);
 
-// === Reorganisation des QCM : monte ou descend un QCM et enregistre l'ordre (orderIndex) ===
-async function moveQuiz(id, dir){
-  const ids = quizOrderIds.slice();
-  const i = ids.indexOf(id);
-  if (i < 0) return;
-  const j = (dir === 'up') ? i - 1 : i + 1;
-  if (j < 0 || j >= ids.length) return;
-  // echange les deux positions
-  const tmp = ids[i]; ids[i] = ids[j]; ids[j] = tmp;
-  // enregistre le nouvel ordre (0,1,2,...) pour tous les QCM en une seule operation
-  try {
-    const batch = writeBatch(db);
-    ids.forEach((qid, k) => batch.update(doc(db, 'quizzes', qid), { orderIndex: k }));
-    await batch.commit();
-    // l'affichage se rafraichit tout seul via onSnapshot
-  } catch (e) {
-    console.error('[reorder quizzes]', e);
-    alert('Reorganisation impossible : ' + (e && (e.code || e.message) ? (e.code || e.message) : e));
-  }
+// === Reorganisation des QCM par glisser-deposer dans la liste synthese ===
+function enableQuizDragAndDrop(){
+  const list = ui.quizzesSummary;
+  if (!list) return;
+  const rows = Array.from(list.querySelectorAll('.quizrow'));
+  let dragSrc = null;
+
+  const saveOrder = async () => {
+    const ids = Array.from(list.querySelectorAll('.quizrow')).map(el => el.getAttribute('data-id'));
+    try {
+      const batch = writeBatch(db);
+      ids.forEach((qid, k) => batch.update(doc(db, 'quizzes', qid), { orderIndex: k }));
+      await batch.commit(); // une seule ecriture -> l'affichage se rafraichit via onSnapshot
+    } catch (e) {
+      console.error('[reorder quizzes]', e);
+      alert('Reorganisation impossible : ' + (e && (e.code || e.message) ? (e.code || e.message) : e));
+    }
+  };
+
+  rows.forEach(row => {
+    row.addEventListener('dragstart', (e) => {
+      dragSrc = row;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', async () => {
+      row.classList.remove('dragging');
+      await saveOrder();
+    });
+    row.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (row === dragSrc) return;
+      const rect = row.getBoundingClientRect();
+      const before = (e.clientY - rect.top) < (rect.height / 2);
+      list.insertBefore(dragSrc, before ? row : row.nextSibling);
+    });
+  });
 }
 
 // Boot
