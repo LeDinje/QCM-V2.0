@@ -750,12 +750,16 @@ function enableQuizDragAndDrop(){
 
   rows.forEach(row => {
     row.addEventListener('dragstart', (e) => {
+      // ne pas demarrer de glissement si on clique sur un bouton/lien (sinon le clic est avale)
+      if (e.target.closest('button, a, input, select, textarea')) { e.preventDefault(); return; }
       dragSrc = row;
       row.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
     });
     row.addEventListener('dragend', async () => {
       row.classList.remove('dragging');
+      if (!dragSrc) return; // glissement annule (clic sur un bouton)
+      dragSrc = null;
       await saveOrder();
     });
     row.addEventListener('dragover', (e) => {
@@ -787,12 +791,16 @@ function enableDragAndDropAutoSave(){
 
   rows.forEach(row => {
     row.addEventListener('dragstart', (e)=>{
+      // ne pas demarrer de glissement si on clique sur un bouton/lien (sinon le clic est avale)
+      if (e.target.closest('button, a, input, select, textarea')) { e.preventDefault(); return; }
       dragSrc = row;
       row.classList.add('dragging');
       e.dataTransfer.effectAllowed = 'move';
     });
     row.addEventListener('dragend', async ()=>{
       row.classList.remove('dragging');
+      if (!dragSrc) return; // glissement annule (clic sur un bouton)
+      dragSrc = null;
       await saveOrder();
     });
     row.addEventListener('dragover', (e)=>{
