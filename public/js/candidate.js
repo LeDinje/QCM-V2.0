@@ -1,605 +1,457 @@
-import { auth, db, collection, doc, getDocs, addDoc, ensureAnonAuth, serverTimestamp } from "./common.js";
+/**
+ * Espace candidat v2
+ * - Les bonnes réponses ne sont JAMAIS chargées côté candidat (elles sont dans answerKeys, réservé aux admins).
+ *   Le score est calculé dans l'espace admin.
+ * - Progression sauvegardée sur le poste : un rechargement accidentel ne fait rien perdre.
+ * - Indice de confiance « Trust » silencieux (sorties de fenêtre), rechargements comptés.
+ */
+import { auth, db, collection, getDocs, addDoc, ensureAnonAuth, serverTimestamp } from "./common.js";
+import { esc, icon, initPage, fmtDuration } from "./ui.js";
 
-// --- Elements ---
-var DEBUG_TRUST = /[?&]debug=1\b/.test(location.search);
-var els = {
-  select: document.getElementById("quizSelect"),
-  name: document.getElementById("candidateName"),
-  startBtn: document.getElementById("startBtn"),
-  quizMeta: document.getElementById("quizMeta"),
-  quizTitle: document.getElementById("quizTitle"),
-  timer: document.getElementById("timer"),
-  cardSelect: document.getElementById("card-select"),
-  cardQuiz: document.getElementById("card-quiz"),
-  cardResults: document.getElementById("card-results"),
-  questionBox: document.getElementById("questionBox"),
-  prevBtn: document.getElementById("prevBtn"),
-  nextBtn: document.getElementById("nextBtn"),
-  scoreText: document.getElementById("scoreText"),
+initPage();
+
+const DEBUG_TRUST = /[?&]debug=1\b/.test(location.search);
+const SESSION_KEY = "qcm.session.v2";
+const LETTERS = "ABCDEFGHIJ";
+const $ = (id) => document.getElementById(id);
+
+const els = {
+  name: $("candidateName"), quizList: $("quizList"), startBtn: $("startBtn"), setupError: $("setupError"),
+  resumeBox: $("resumeBox"), resumeText: $("resumeText"), resumeBtn: $("resumeBtn"),
+  quizBar: $("quizBar"), quizTitle: $("quizTitle"), progressText: $("progressText"), progressFill: $("progressFill"), timer: $("timer"),
+  qCounter: $("qCounter"), flagBtn: $("flagBtn"), questionBox: $("questionBox"), prevBtn: $("prevBtn"), nextBtn: $("nextBtn"),
+  navBox: $("navBox"), qNav: $("qNav"), navSummary: $("navSummary"),
+  reviewText: $("reviewText"), reviewNav: $("reviewNav"), backToQuizBtn: $("backToQuizBtn"), submitBtn: $("submitBtn"),
+  doneTitle: $("doneTitle"), doneText: $("doneText"), retryBtn: $("retryBtn"),
+  prestart: $("prestart"), prestartTitle: $("prestartTitle"), prestartList: $("prestartList"),
+  prestartCancel: $("prestartCancel"), prestartGo: $("prestartGo"),
 };
 
-// === Easter egg : nom d'exemple aleatoire (figures connues de l'informatique), change a chaque F5 ===
-(function setRandomNamePlaceholder(){
-  try {
-    var famousNames = [
-      "Jane Doe",
-      "Ada Lovelace", "Alan Turing", "Grace Hopper", "Linus Torvalds",
-      "Dennis Ritchie", "Ken Thompson", "Tim Berners-Lee", "Margaret Hamilton",
-      "Donald Knuth", "Guido van Rossum", "Brian Kernighan", "Vint Cerf",
-      "Edsger Dijkstra", "Claude Shannon", "Bjarne Stroustrup", "James Gosling",
-      "Richard Stallman", "Steve Wozniak", "Katherine Johnson", "Radia Perlman",
-      "Barbara Liskov", "John von Neumann", "Hedy Lamarr", "Anita Borg", "Larry Wall"
-    ];
-    if (els.name) {
-      var pick = famousNames[Math.floor(Math.random() * famousNames.length)];
-      els.name.placeholder = "Ex : " + pick;
-    }
-  } catch (e) {}
+// Nom d'exemple aléatoire (figures connues de l'informatique), change à chaque chargement
+(function setRandomNamePlaceholder() {
+  const famous = ["Jane Doe", "Ada Lovelace", "Alan Turing", "Grace Hopper", "Linus Torvalds", "Dennis Ritchie",
+    "Ken Thompson", "Tim Berners-Lee", "Margaret Hamilton", "Donald Knuth", "Guido van Rossum", "Brian Kernighan",
+    "Vint Cerf", "Edsger Dijkstra", "Claude Shannon", "Bjarne Stroustrup", "James Gosling", "Richard Stallman",
+    "Steve Wozniak", "Katherine Johnson", "Radia Perlman", "Barbara Liskov", "John von Neumann", "Hedy Lamarr",
+    "Anita Borg", "Larry Wall"];
+  els.name.placeholder = "Ex : " + famous[Math.floor(Math.random() * famous.length)];
 })();
 
-// --- State ---
-var state = {
-  otherText: {},
-quizId: null,
-  quizTitle: "",
-  timerMinutes: 0,
-  questions: [], // {id,text,options[],correctIndex}
-  idx: 0,
-  chosen: {}, // qid -> selected index
-  endAt: 0,
-  tick: null,
-  antiCheatArmed: false,
-  finished: false, // verrou: empeche d'enregistrer 2 fois le resultat
+let quizzes = [];   // QCM disponibles
+let s = null;       // session de test en cours (sauvegardée dans localStorage)
+let tick = null;
+let qEnteredAt = 0; // pour mesurer le temps passé par question
 
-  // Trust/anti-cheat replacement state
-  trust: { events: [], lostCount: 0, totalOutMs: 0 },
-  trackingEnabled: false,
-  isOff:false, offStart:0, offQid:null, currentQid:null,
-  focusStats: {}
-};
-
-// --- Trust-factor safe wrappers ---
-const __tf = {
-  beginOff: function(reason){ 
-    if (typeof tf_beginOff === 'function') { return tf_beginOff.apply(null, arguments); }
-    // Fallback logic: start counting if not already off
-    if (DEBUG_TRUST) console.warn('[trust] beginOff shim used');
-    try{
-      if (!state.trackingEnabled) return;
-      if (state.isOff) return;
-      state.isOff = true;
-      state.offStart = Date.now();
-      var q = state.questions[state.idx];
-      state.offQid = q ? q.id : null;
-    }catch(e){}
-  },
-  endOff: function(reason){
-    if (typeof tf_endOff === 'function') { return tf_endOff.apply(null, arguments); }
-    // Fallback logic: stop counting and record event
-    if (DEBUG_TRUST) console.warn('[trust] endOff shim used');
-    try{
-      if (!state.trackingEnabled) return;
-      if (!state.isOff) return;
-      state.isOff = false;
-      var dur = Date.now() - state.offStart;
-      if (dur <= 800) return; // ignore tiny flickers
-      var penalized = dur - 2000; // franchise 2s
-      if (penalized < 0) penalized = 0;
-      var ev = { t: Date.now(), ms: penalized, qid: state.offQid || null };
-      if (!state.trust) state.trust = { events: [], lostCount: 0, totalOutMs: 0 };
-      state.trust.events.push(ev);
-      state.trust.lostCount += 1;
-      state.trust.totalOutMs += penalized;
-      if (ev.qid){
-        if (!state.focusStats) state.focusStats = {};
-        if (!state.focusStats[ev.qid]) state.focusStats[ev.qid] = { losses:0, ms:0 };
-        state.focusStats[ev.qid].losses += 1;
-        state.focusStats[ev.qid].ms += penalized;
-      }
-    }catch(e){}
-  },
-  computeScore: function(){
-    if (typeof tf_computeScore === 'function') { return tf_computeScore.apply(null, arguments); }
-    if (DEBUG_TRUST) console.warn('[trust] computeScore shim used');
-    try{
-      var lc = (state.trust && state.trust.lostCount) || 0;
-      var ms = (state.trust && state.trust.totalOutMs) || 0;
-      var s = 100 - (lc*10) - Math.floor(ms/1000);
-      if (s < 0) s = 0; if (s > 100) s = 100;
-      return s;
-    }catch(e){ return 100; }
-  }
-};
-// --- End wrappers ---
-
-
-
-function shuffle(arr){
-  var a = arr.slice();
-  for (var i=a.length-1;i>0;i--){
-    var j = Math.floor(Math.random()*(i+1));
-    var t = a[i]; a[i]=a[j]; a[j]=t;
-  }
-  
-
-// === Silent Trust-Factor (focus tracking) ===
-// We record blur/visibilitychange periods without ending the test.
-// Rules: ignore short leaves (<800ms). Deduct a 2s "franchise" per event.
-function tf_beginOff(reason){ if (DEBUG_TRUST) console.log('[trust] beginOff', reason, 'qid=', state.currentQid);
-  if (!state.trackingEnabled) return;
-  if (state.isOff) return;
-  if (!state.trackingEnabled || state.isOff) return;
-  state.isOff = true;
-  state.offStart = Date.now();
-  var q = state.questions[state.idx];
-  state.offQid = q ? q.id : null;
+// ---------- Utilitaires ----------
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
 }
-function tf_endOff(reason){ if (DEBUG_TRUST) console.log('[trust] endOff', reason, 'qid=', state.offQid, 'dur(ms)=', Date.now()-state.offStart);
-  if (!state.trackingEnabled) return;
-  if (!state.isOff) return;
-  if (!state.trackingEnabled || !state.isOff) return;
-  state.isOff = false;
-  var dur = Date.now() - state.offStart;
-  if (dur <= 800) return; // ignore tiny flickers
-  var penalized = dur - 2000; // franchise 2s
-  if (penalized < 0) penalized = 0;
-  var ev = { t: Date.now(), ms: penalized, qid: state.offQid || null };
-  state.trust.events.push(ev);
-  state.trust.lostCount += 1;
-  state.trust.totalOutMs += penalized;
-
-  if (ev.qid){
-    if (!state.focusStats[ev.qid]) state.focusStats[ev.qid] = { losses:0, ms:0 };
-    state.focusStats[ev.qid].losses += 1;
-    state.focusStats[ev.qid].ms += penalized;
-  }
+function show(step) {
+  ["setup", "quiz", "review", "done", "error"].forEach((n) => $("step-" + n).classList.toggle("hidden", n !== step));
+  els.quizBar.classList.toggle("hidden", !(step === "quiz" || step === "review"));
+  window.scrollTo({ top: 0 });
 }
-function tf_computeScore(){
-  // Simple scoring: -10 points per loss, and -1 point per full second out-of-window (after franchise), min 0.
-  var s = 100 - (state.trust.lostCount * 10) - Math.floor(state.trust.totalOutMs / 1000);
-  if (s < 0) s = 0;
-  if (s > 100) s = 100;
-  return s;
-}
+function save() { try { if (s) localStorage.setItem(SESSION_KEY, JSON.stringify(s)); } catch (e) {} }
+function loadSaved() { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch (e) { return null; } }
+function clearSaved() { try { localStorage.removeItem(SESSION_KEY); } catch (e) {} }
+function isOther(q, i) { return q.options[i] === "Autres" || (q.otherEnabled && i === q.options.length - 1); }
+function answeredCount() { return s.questions.filter((q) => q.id in s.chosen).length; }
 
-return a;
-}
-
-// --- Load quizzes into the <select> ---
-function loadQuizzes(){
-  return getDocs(collection(db, "quizzes")).then(function(snap){
-    var opts = [];
-    snap.forEach(function(d){
-      var q = d.data() || {};
-      opts.push({
-        id: d.id,
-        title: q.title || "Sans titre",
-        timer: Number(q.timerMinutes || 0),
-        desc: q.description || "",
-        orderIndex: (typeof q.orderIndex === "number") ? q.orderIndex : null
-      });
-    });
-    // meme ordre personnalise que l'admin (orderIndex), sinon par titre
-    opts.sort(function(a,b){
-      var ao = (typeof a.orderIndex === "number") ? a.orderIndex : 1e9;
-      var bo = (typeof b.orderIndex === "number") ? b.orderIndex : 1e9;
-      if (ao !== bo) return ao - bo;
-      return String(a.title).localeCompare(String(b.title));
-    });
-    var esc = function(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); };
-    var html = '<option value="">— Sélectionner un QCM —</option>';
-    for (var k=0;k<opts.length;k++){
-      var o = opts[k];
-      var t = esc(o.title);
-      html += '<option value="'+o.id+'" data-timer="'+o.timer+'" data-title="'+t+'">'+t+'</option>';
-    }
-    if (els.select){ els.select.innerHTML = html; }
-    if (els.select){
-      els.select.addEventListener("change", function(){
-        var si = els.select.selectedIndex;
-        var opt = si >= 0 ? els.select.options[si] : null;
-        var t = opt ? Number(opt.getAttribute("data-timer")||"0") : 0;
-        var title = opt ? opt.getAttribute("data-title") || "" : "";
-        state.timerMinutes = t;
-        state.quizTitle = title;
-        if (els.quizMeta){
-          els.quizMeta.textContent = (t>0 ? ("⏱ Chronométré : "+t+" min") : "Non chronométré");
-        }
-      }, { once: true });
-    }
-  }).catch(function(e){
-    console.error("[loadQuizzes] error:", e);
-  });
-}
-
-// --- Load questions for a quiz ---
-function loadQuestions(quizId){
-  return getDocs(collection(db, "quizzes", quizId, "questions")).then(function(sap){
-    var arr = [];
-    sap.forEach(function(d){
-      var q = d.data() || {};
-      var options = Array.isArray(q.options) ? q.options.slice() : (Array.isArray(q.answers) ? q.answers.slice() : []);
-      var text = q.text || q.title || q.question || "(sans intitulé)";
-      var correctIndex = (typeof q.correctIndex === "number") ? q.correctIndex : -1;
-      // shuffle options but preserve which index is correct
-      var map = shuffle(options.map(function(v,i){ return { v:v, i:i }; }));
-      var newOptions = map.map(function(x){ return x.v; });
-      var newCorrect = -1;
-      for (var m=0;m<map.length;m++){ if (map[m].i === correctIndex){ newCorrect = m; break; } }
-      var createdAtMs = 0;
-    try { if (q.createdAt && typeof q.createdAt.seconds === 'number') { createdAtMs = q.createdAt.seconds*1000 + (q.createdAt.nanoseconds||0)/1e6; } } catch(e){}
-    var orderIndex = (typeof q.orderIndex === 'number') ? q.orderIndex : (typeof q.order === 'number' ? q.order : null);
-    arr.push({ id: d.id, text: text, options: newOptions, correctIndex: newCorrect, orderIndex: orderIndex, createdAtMs: createdAtMs, imageUrl: (q.imageUrl || q.imageURL || q.imgUrl || q.image || q.image_url || null) });
-    });
-    // Sort questions by orderIndex asc, then createdAt asc (fallback)
-    arr.sort(function(a,b){
-      var ao = (typeof a.orderIndex === 'number') ? a.orderIndex : 1e9;
-      var bo = (typeof b.orderIndex === 'number') ? b.orderIndex : 1e9;
-      if (ao !== bo) return ao - bo;
-      var ac = (typeof a.createdAtMs === 'number') ? a.createdAtMs : 0;
-      var bc = (typeof b.createdAtMs === 'number') ? b.createdAtMs : 0;
-      return ac - bc;
-    });
-    state.questions = arr; state.idx = 0; state.chosen = {};
-  }).catch(function(e){
-    console.error("[loadQuestions] error:", e);
-    state.questions = [];
-  });
-}
-
-// --- Render current question ---
-function renderQuestion(){
-  state.currentQid = (state.questions[state.idx] && state.questions[state.idx].id) || null;
-  if (!state.trackingEnabled) { state.trackingEnabled = true; if (DEBUG_TRUST) console.log('[trust] tracking enabled (render)'); }
-  var q = state.questions[state.idx];
-  if (!q) return;
-  if (els.quizTitle) els.quizTitle.textContent = state.quizTitle || "";
-  var chosen = state.chosen[q.id];
-  var otherVal = (state.otherText && state.otherText[q.id]) ? state.otherText[q.id] : "";
-
-  var optionsHtml = "";
-  for (var i=0;i<q.options.length;i++){
-    var opt = q.options[i];
-    if (opt === 'Autres') {
-      var checkedOther = (chosen === 'other') ? ' checked' : '';
-      var show = (chosen === 'other') ? 'block' : 'none';
-      optionsHtml += ''
-        + '<label class="item" style="flex-direction:column;align-items:flex-start">'
-        +   '<div>'
-        +     '<input type="radio" name="opt" value="other"'+checkedOther+'> Autres'
-        +   '</div>'
-        +   '<div style="margin-top:8px;width:100%;display:'+show+'">'
-        +     '<textarea class="other-input" placeholder="Votre réponse..." style="width:100%;min-height:110px;font-size:14px;line-height:1.6;resize:vertical;padding:10px 12px;border-radius:10px;border:1px solid #2b3445;background:#0b1220;color:#e5e7eb;font-family:inherit">'+(otherVal||'')+'</textarea>'
-        +   '</div>'
-        + '</label>';
-    } else {
-      var checked = (chosen === i) ? ' checked' : '';
-      optionsHtml += '<label class="item"><div><input type="radio" name="opt" value="'+i+'"'+checked+'> '+opt+'</div></label>';
-    }
-  }
-
-  if (els.questionBox){
-    els.questionBox.innerHTML = ''
-      + '<div class="small muted">Question '+(state.idx+1)+' / '+state.questions.length+'</div>'
-      + (q.imageUrl ? '<div style="margin:10px 0;text-align:center">'
-        + '<div style="position:relative;display:inline-block">'
-        + '<img id="qimg" src="'+q.imageUrl+'" onerror="this.style.display=\'none\';document.getElementById(\'imgErrHint\')&& (document.getElementById(\'imgErrHint\').style.display=\'block\');" '
-        + 'style="max-width:100%;max-height:280px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.15);background:#1f2937;padding:4px;cursor:zoom-in" '
-        + 'title="Cliquer pour agrandir">'
-        + '<span style="position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.6);border-radius:6px;padding:2px 7px;font-size:11px;color:#e5e7eb;pointer-events:none">🔍 Agrandir</span>'
-        + '</div>'
-        + '<div id="imgErrHint" class="small" style="display:none;color:#b91c1c;margin-top:6px">Image non chargeable (URL invalide ou droits Storage)</div>'
-        + '<div id="img-zoom-overlay" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.88);align-items:center;justify-content:center;flex-direction:column">'
-        + '  <div style="position:relative;max-width:96vw;max-height:92vh">'
-        + '    <img id="img-zoom-large" src="'+q.imageUrl+'" style="max-width:94vw;max-height:88vh;border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.6);background:#1f2937;padding:6px">'
-        + '    <button id="img-zoom-close" type="button" style="position:absolute;top:-14px;right:-14px;width:32px;height:32px;border-radius:50%;border:none;background:#ef4444;color:#fff;font-size:20px;line-height:1;cursor:pointer">&times;</button>'
-        + '  </div>'
-        + '  <p style="color:#9ca3af;font-size:13px;margin-top:12px">Cliquez en dehors de l\'image ou sur &times; pour fermer</p>'
-        + '</div>'
-      + '</div>' : '')
-      + '<div style="font-weight:700;margin:6px 0 10px 0">'+q.text+'</div>'
-      + '<div class="list">'+optionsHtml+'</div>';
-
-    // Wire image zoom — stays in-page so no focus/visibility event is triggered
-    var qimg = els.questionBox.querySelector('#qimg');
-    var overlay = els.questionBox.querySelector('#img-zoom-overlay');
-    var zoomClose = els.questionBox.querySelector('#img-zoom-close');
-    if (qimg && overlay) {
-      qimg.addEventListener('click', function() {
-        overlay.style.display = 'flex';
-      });
-      overlay.addEventListener('click', function(e) {
-        if (e.target === overlay) overlay.style.display = 'none';
-      });
-      if (zoomClose) zoomClose.addEventListener('click', function(e) {
-        e.stopPropagation();
-        overlay.style.display = 'none';
-      });
-    }
-
-    // bind radios + textarea
-    var radios = els.questionBox.querySelectorAll('input[name="opt"]');
-    for (var r=0;r<radios.length;r++){
-      radios[r].addEventListener('change', function(ev){
-        var val = ev.target.value;
-        if (val === 'other') {
-          state.chosen[q.id] = 'other';
-          // show textarea
-          var wrap = ev.target.closest('label');
-          if (wrap){
-            var box = wrap.querySelector('.other-input');
-            var div = box ? box.parentElement : null;
-            if (div) div.style.display = 'block';
-            if (box) box.focus();
-            // hide other textareas in other labels
-            var all = els.questionBox.querySelectorAll('.other-input');
-            for (var k=0;k<all.length;k++){
-              if (all[k] !== box) {
-                all[k].parentElement.style.display = 'none';
-              }
-            }
-          }
-        } else {
-          state.chosen[q.id] = Number(val);
-          // hide any other textarea
-          var all2 = els.questionBox.querySelectorAll('.other-input');
-          for (var k2=0;k2<all2.length;k2++){
-            all2[k2].parentElement.style.display = 'none';
-          }
-        }
-      });
-    }
-
-    var ta = els.questionBox.querySelector('.other-input');
-    if (ta){
-      ta.addEventListener('input', function(){
-        if (!state.otherText) state.otherText = {};
-        state.otherText[q.id] = ta.value;
-      });
-    }
-  }
-
-  // update progress
-  updateNav();
-}
-
-// --- Timer ---
-function startTimer(){
-  if (!els.timer) return;
-  if (!state.timerMinutes || state.timerMinutes<=0){ els.timer.textContent = ""; return; }
-  var totalMs = state.timerMinutes * 60 * 1000;
-  state.endAt = Date.now() + totalMs;
-  if (state.tick) clearInterval(state.tick);
-  state.tick = setInterval(function(){
-    var left = state.endAt - Date.now();
-    if (left <= 0){
-      clearInterval(state.tick);
-      els.timer.textContent = "Temps écoulé";
-      finish();
-      return;
-    }
-    var sec = Math.floor(left/1000);
-    var m = Math.floor(sec/60);
-    var s = sec % 60;
-    els.timer.textContent = '⏱ '+m+':'+String(s).padStart(2,'0');
-  }, 200);
-}
-
-// --- Helpers ---
-function hideStartArea(){
-  if (els.cardSelect) els.cardSelect.style.display = "none";
-  var container = null;
-  if (els.startBtn && typeof els.startBtn.closest === "function"){
-    container = els.startBtn.closest('section, .card, .panel, .box, .container, .content, .paper, form');
-  }
-  if (!container && els.select && typeof els.select.closest === "function"){
-    container = els.select.closest('section, .card, .panel, .box, .container, .content, .paper, form');
-  }
-  if (container){ try{ container.style.display = "none"; }catch(e){} }
-  if (!container){
-    if (els.select) els.select.style.display = "none";
-    if (els.name) els.name.style.display = "none";
-    if (els.startBtn) els.startBtn.style.display = "none";
+// ---------- Chargement des QCM ----------
+async function loadQuizzes() {
+  try {
+    const snap = await getDocs(collection(db, "quizzes"));
+    quizzes = snap.docs.map((d) => {
+      const q = d.data() || {};
+      return { id: d.id, title: q.title || "Sans titre", desc: q.description || "", timer: Number(q.timerMinutes || 0),
+               orderIndex: typeof q.orderIndex === "number" ? q.orderIndex : 1e9, active: q.active !== false };
+    }).filter((q) => q.active);
+    quizzes.sort((a, b) => a.orderIndex - b.orderIndex || a.title.localeCompare(b.title));
+    renderQuizList();
+  } catch (e) {
+    console.error("[loadQuizzes]", e);
+    els.quizList.innerHTML = '<div class="alert alert-danger">' + icon("alert") + '<div class="alert-body">Impossible de charger les questionnaires. Vérifiez votre connexion puis rechargez la page.</div></div>';
   }
 }
 
-// --- Prestart overlay ---
-var _pf = null;
-function showPrestart(){
-  var hasTimer = !!state.timerMinutes && state.timerMinutes > 0;
-  var timerLine = hasTimer ? ('Ce QCM est <b>chronométré</b> : <b>'+state.timerMinutes+' minute'+(state.timerMinutes>1?'s':'')+'</b>.')
-                           : ('Ce QCM <b>n’est pas chronométré</b>.');
-  var html = ''
-    + '<div id="pf-overlay" style="position:fixed;inset:0;background:rgba(0,0,0,.82);z-index:9999;display:flex;align-items:center;justify-content:center">'
-    + '  <div style="max-width:720px;width:92%;background:#1b1b1b;color:#f5f5f5;border-radius:16px;padding:22px;box-shadow:0 18px 40px rgba(0,0,0,.6)">'
-    + '    <h2 style="margin:0 0 10px 0">Avant de commencer</h2>'
-    + '    <ul style="margin:0 0 14px 18px;line-height:1.6">'
-    + '      <li>'+timerLine+'</li>'
-    + '' + '      <li>Ne rechargez pas la page pendant le test.</li>'
-    + '    </ul>'
-    + '    <div style="display:flex;gap:10px;justify-content:flex-end">'
-    + '      <button id="pf-cancel" type="button" style="padding:10px 14px;border-radius:12px;border:1px solid #3a3a3a;background:#2a2a2a;color:#ddd;cursor:pointer">Annuler</button>'
-    + '      <button id="pf-start" type="button" style="padding:10px 14px;border-radius:12px;border:0;background:#0d6efd;color:#fff;cursor:pointer">Commencer le test</button>'
-    + '    </div>'
-    + '  </div>'
-    + '</div>';
-  _pf = document.createElement('div');
-  _pf.innerHTML = html;
-  document.body.appendChild(_pf);
-  var onCancel = function(e){ e.preventDefault(); e.stopPropagation(); hidePrestart(); };
-  var onStart = function(e){ e.preventDefault(); e.stopPropagation(); hidePrestart(); actuallyStartQuiz(); };
-  _pf.querySelector('#pf-cancel').addEventListener('click', onCancel);
-  _pf.querySelector('#pf-start').addEventListener('click', onStart);
-}
-function hidePrestart(){
-  if (_pf && _pf.parentNode){ _pf.parentNode.removeChild(_pf); }
-  _pf = null;
-}
-
-// Start AFTER confirmation
-function actuallyStartQuiz(){
-  loadQuestions(state.quizId).then(function(){
-    if (!state.questions.length){ alert("Ce QCM ne contient aucune question."); return; }
-    hideStartArea();
-    if (els.cardQuiz) els.cardQuiz.style.display = "block";
-    renderQuestion();
-    startTimer();
-    // Arm anti-cheat AFTER first render
-    // anti-cheat removed (no-op)
-  });
-}
-
-// --- Flow ---
-function startQuiz(){
-  var id = els.select ? els.select.value : "";
-  var name = els.name ? String(els.name.value||"").trim() : "";
-  if (!id || !name){ alert("Choisis un QCM et indique ton nom."); return; }
-  state.quizId = id;
-  var si = els.select ? els.select.selectedIndex : -1;
-  var opt = (si>=0 && els.select) ? els.select.options[si] : null;
-  state.quizTitle = opt ? (opt.getAttribute("data-title") || "") : state.quizTitle;
-  state.timerMinutes = opt ? Number(opt.getAttribute("data-timer")||"0") : state.timerMinutes;
-  // Show confirmation overlay
-  showPrestart();
-}
-
-function nextOrFinish(){
-  var q = state.questions[state.idx];
-  if (!q){ return; }
-  if (!(q.id in state.chosen)){
-    if (els.questionBox){
-      var warn = els.questionBox.querySelector('.q-warn');
-      if (!warn){
-        warn = document.createElement('div');
-        warn.className = 'q-warn';
-        warn.style.cssText = 'margin:8px 0;padding:8px 10px;border-radius:8px;background:#fff3cd;border:1px solid #ffecb5;color:#664d03;font-size:14px;';
-        // insert after the question title if possible
-        var firstDiv = els.questionBox.querySelector('div:nth-child(2)');
-        if (firstDiv && firstDiv.parentNode === els.questionBox) {
-          els.questionBox.insertBefore(warn, firstDiv.nextSibling);
-        } else {
-          els.questionBox.insertBefore(warn, els.questionBox.firstChild);
-        }
-      }
-      warn.textContent = "Sélectionne une réponse avant de continuer.";
-      try { clearTimeout(warn.__t); } catch(e){}
-      warn.__t = setTimeout(function(){ if (warn && warn.parentNode) warn.parentNode.removeChild(warn); }, 1800);
-    }
+function renderQuizList() {
+  if (!quizzes.length) {
+    els.quizList.innerHTML = '<div class="empty">' + icon("clipboard") + "<div>Aucun questionnaire n'est disponible pour le moment.</div></div>";
     return;
   }
-  if (state.idx === state.questions.length - 1){
-    state.antiCheatArmed = false;
-    finish();
-  } else {
-    state.idx++;
-    renderQuestion();
-  }
+  // Lien direct : candidate.html?quiz=ID présélectionne (et met en avant) un QCM
+  const wanted = new URLSearchParams(location.search).get("quiz");
+  els.quizList.innerHTML = quizzes.map((q) =>
+    '<label class="quiz-option">' +
+      '<input type="radio" name="quiz" value="' + esc(q.id) + '"' + (q.id === wanted ? " checked" : "") + ">" +
+      '<span class="qo-radio"></span>' +
+      '<span style="min-width:0"><span class="qo-title" style="display:block">' + esc(q.title) + "</span>" +
+      (q.desc ? '<span class="qo-desc" style="display:block">' + esc(q.desc) + "</span>" : "") + "</span>" +
+      (q.timer > 0 ? '<span class="badge">' + icon("clock", "icon-sm") + q.timer + " min</span>"
+                   : '<span class="badge">Sans limite</span>') +
+    "</label>").join("");
 }
 
-function prev(){
-  if (state.idx > 0){
-    state.idx--;
-    renderQuestion();
-  }
+// ---------- Démarrage ----------
+function startClicked() {
+  const name = els.name.value.trim();
+  const picked = els.quizList.querySelector('input[name="quiz"]:checked');
+  els.setupError.textContent = "";
+  if (!name) { els.setupError.textContent = "Indiquez votre prénom et votre nom."; els.name.focus(); return; }
+  if (!picked) { els.setupError.textContent = "Choisissez un questionnaire."; return; }
+  const quiz = quizzes.find((q) => q.id === picked.value);
+  if (!quiz) return;
+
+  els.prestartTitle.textContent = quiz.title;
+  const li = (ic, html) => '<li class="row" style="flex-wrap:nowrap;align-items:flex-start;gap:12px">' + icon(ic) + "<span>" + html + "</span></li>";
+  els.prestartList.innerHTML =
+    li("clock", quiz.timer > 0 ? "Ce test est <b>chronométré : " + quiz.timer + " minute" + (quiz.timer > 1 ? "s" : "") + "</b>. À la fin du temps, vos réponses sont envoyées automatiquement."
+                               : "Ce test <b>n'est pas chronométré</b>. Prenez le temps nécessaire.") +
+    li("list", "Vous pouvez naviguer librement entre les questions et en marquer certaines <b>« à revoir »</b>.") +
+    li("rotate", "En cas de rechargement accidentel, votre progression est conservée.") +
+    li("lock", "Restez sur cette fenêtre pendant toute la durée du test.");
+  els.prestart.showModal();
+  els.prestartGo.onclick = () => { els.prestart.close(); beginQuiz(quiz, name); };
 }
 
-// --- Finish & save ---
-function finish(endedBy){
-  // verrou anti double-enregistrement (ex: chrono qui se declenche apres une fin manuelle)
-  if (state.finished) return;
-  state.finished = true;
-  // stoppe le minuteur s'il tourne encore
-  if (state.tick){ clearInterval(state.tick); state.tick = null; }
-  // disarm anti-cheat
-  state.antiCheatArmed = false;
-  // flush any pending off-window period
-  try{ __tf.endOff('finish'); }catch(e){}
-  // Compute score + details for admin modal
-  var correct = 0;
-  var answers = [];
-  var answersDetails = [];
-  for (var i=0;i<state.questions.length;i++){
-    var q = state.questions[i];
-    var chosen = (q.id in state.chosen) ? state.chosen[q.id] : -1;
-    var otherText = (chosen === 'other' && state.otherText && state.otherText[q.id]) ? state.otherText[q.id] : null;
-    answers.push({ questionId: q.id, chosenIndex: chosen, correctIndex: q.correctIndex });
-    if (q.correctIndex >= 0 && chosen === q.correctIndex) correct++;
-    answersDetails.push({
-      questionId: q.id,
-      questionText: q.text,
-      options: q.options,
-      chosenIndex: chosen,
-      correctIndex: q.correctIndex,
-      focusLosses: (state.focusStats[q.id] && state.focusStats[q.id].losses) || 0,
-      offWindowMs: (state.focusStats[q.id] && state.focusStats[q.id].ms) || 0,
-      otherText: otherText
+async function beginQuiz(quiz, name) {
+  els.prestartGo.disabled = true;
+  try {
+    const snap = await getDocs(collection(db, "quizzes", quiz.id, "questions"));
+    const list = snap.docs.map((d) => {
+      const q = d.data() || {};
+      const options = Array.isArray(q.options) ? q.options.slice() : Array.isArray(q.answers) ? q.answers.slice() : [];
+      const created = q.createdAt && typeof q.createdAt.seconds === "number" ? q.createdAt.seconds : (typeof q.createdAt === "number" ? q.createdAt / 1000 : 0);
+      return { id: d.id, text: q.text || q.title || q.question || "(sans intitulé)", options, otherEnabled: !!q.otherEnabled,
+               imageUrl: q.imageUrl || null, orderIndex: typeof q.orderIndex === "number" ? q.orderIndex : 1e9, created };
     });
+    if (!list.length) { els.setupError.textContent = "Ce questionnaire ne contient encore aucune question."; return; }
+    list.sort((a, b) => a.orderIndex - b.orderIndex || a.created - b.created);
+    // Ordre d'affichage des réponses mélangé (la réponse « Autres » reste en dernier)
+    list.forEach((q) => {
+      const idx = q.options.map((_, i) => i);
+      const other = idx.filter((i) => isOther(q, i));
+      q.order = shuffle(idx.filter((i) => !isOther(q, i))).concat(other);
+      delete q.orderIndex; delete q.created;
+    });
+    s = {
+      quizId: quiz.id, quizTitle: quiz.title, name, timerMinutes: quiz.timer,
+      startedAt: Date.now(), endAt: quiz.timer > 0 ? Date.now() + quiz.timer * 60000 : 0,
+      questions: list, idx: 0, chosen: {}, otherText: {}, flagged: {}, timeSpent: {},
+      trust: { events: [], lostCount: 0, totalOutMs: 0, reloads: 0 }, focusStats: {},
+    };
+    save();
+    enterQuiz();
+  } catch (e) {
+    console.error("[beginQuiz]", e);
+    els.setupError.textContent = "Impossible de charger les questions. Réessayez.";
+  } finally {
+    els.prestartGo.disabled = false;
   }
-  // compute trust score
-  if (DEBUG_TRUST) console.log('[trust] before compute', JSON.parse(JSON.stringify(state.trust)));
-  var trustScore = __tf.computeScore();
-  if (DEBUG_TRUST) console.log('[trust] score', trustScore);
-  state.trust.score = trustScore;
-  var payload = {
-    candidateName: String(els.name.value||"").trim(),
-    quizId: state.quizId,
-    quizTitle: state.quizTitle,
-    score: correct,
-    total: state.questions.length,
-    answers: answers,
-    answersDetails: answersDetails,
-    endedBy: endedBy || null,
-    trust: state.trust,
-    uid: auth.currentUser ? auth.currentUser.uid : null,
-    createdAt: serverTimestamp()
-  };
-  addDoc(collection(db, "results"), payload).then(function(){
-    if (els.cardQuiz) els.cardQuiz.style.display = "none";
-    if (els.cardResults) els.cardResults.style.display = "block";
-    if (els.scoreText){
-      els.scoreText.textContent = "Score : "+correct+" / "+state.questions.length + (endedBy==='anti-cheat' ? " (fin prématurée : anti‑triche)" : "");
-    }
-  }).catch(function(e){
-    console.error("[saveResults] error:", e);
-    alert("Impossible d’enregistrer le résultat.");
-    // Show panel anyway
-    if (els.cardQuiz) els.cardQuiz.style.display = "none";
-    if (els.cardResults) els.cardResults.style.display = "block";
-    if (els.scoreText){
-      els.scoreText.textContent = "Score : "+correct+" / "+state.questions.length + (endedBy==='anti-cheat' ? " (fin prématurée : anti‑triche)" : "");
+}
+
+function enterQuiz() {
+  els.quizTitle.textContent = s.quizTitle;
+  show("quiz");
+  startTimer();
+  trackingOn = true;
+  renderQuestion();
+}
+
+// ---------- Affichage d'une question ----------
+function accumulateTime() {
+  if (!s || !qEnteredAt) return;
+  const q = s.questions[s.idx];
+  if (q) s.timeSpent[q.id] = (s.timeSpent[q.id] || 0) + (Date.now() - qEnteredAt);
+  qEnteredAt = Date.now();
+}
+
+function goTo(i) {
+  accumulateTime();
+  s.idx = Math.max(0, Math.min(s.questions.length - 1, i));
+  save();
+  show("quiz");
+  renderQuestion();
+}
+
+function renderQuestion() {
+  const q = s.questions[s.idx];
+  qEnteredAt = Date.now();
+  const total = s.questions.length;
+  els.qCounter.textContent = "Question " + (s.idx + 1) + " sur " + total;
+  els.flagBtn.setAttribute("aria-pressed", s.flagged[q.id] ? "true" : "false");
+  els.prevBtn.disabled = s.idx === 0;
+  els.nextBtn.innerHTML = s.idx === total - 1 ? "Terminer " + icon("check") : "Suivant " + icon("arrow-right");
+
+  const chosen = s.chosen[q.id];
+  let html = "";
+  if (q.imageUrl) {
+    html += '<figure class="q-figure"><button type="button" id="qimgBtn" title="Agrandir l\'image">' +
+            '<img src="' + esc(q.imageUrl) + '" alt="Illustration de la question" id="qimg"></button>' +
+            "<figcaption>" + icon("zoom", "icon-sm") + " Cliquer pour agrandir</figcaption></figure>";
+  }
+  html += '<h2 class="q-text" id="qText">' + esc(q.text) + "</h2>";
+  html += '<div class="answers" role="radiogroup" aria-labelledby="qText">';
+  q.order.forEach((orig, pos) => {
+    const key = LETTERS[pos] || String(pos + 1);
+    if (isOther(q, orig)) {
+      const on = chosen === "other";
+      html += '<label class="answer answer-other"><span class="answer-head">' +
+              '<input type="radio" name="ans" value="other"' + (on ? " checked" : "") + ">" +
+              '<span class="answer-key">' + key + '</span><span class="answer-text">Autre réponse (texte libre)</span></span>' +
+              '<textarea class="textarea other-input' + (on ? "" : " hidden") + '" placeholder="Votre réponse…" maxlength="2000">' + esc(s.otherText[q.id] || "") + "</textarea></label>";
+    } else {
+      html += '<label class="answer"><input type="radio" name="ans" value="' + orig + '"' + (chosen === orig ? " checked" : "") + ">" +
+              '<span class="answer-key">' + key + '</span><span class="answer-text">' + esc(q.options[orig]) + "</span></label>";
     }
   });
+  html += "</div>";
+  els.questionBox.innerHTML = html;
+
+  els.questionBox.querySelectorAll('input[name="ans"]').forEach((r) => r.addEventListener("change", () => pick(r.value)));
+  const ta = els.questionBox.querySelector(".other-input");
+  if (ta) ta.addEventListener("input", () => { s.otherText[q.id] = ta.value; save(); });
+  const imgBtn = $("qimgBtn");
+  if (imgBtn) imgBtn.addEventListener("click", () => openZoom(q.imageUrl));
+  const img = $("qimg");
+  if (img) img.addEventListener("error", () => { imgBtn.closest("figure").innerHTML = '<div class="small">Image indisponible.</div>'; });
+
+  renderProgress();
 }
 
-// --- Silent trust-factor tracking injected here ---
-// We start timing when page loses visibility or window blurs; we stop when visible/focus returns.
-document.addEventListener('visibilitychange', function(){ if (DEBUG_TRUST) console.log('[trust] visibilitychange hidden=', document.hidden);
-  if (!state.trackingEnabled) return;
-  if (document.hidden){ __tf.beginOff('visibility'); }
-  else { __tf.endOff('visibility'); }
-});
-window.addEventListener('blur', function(){ if (DEBUG_TRUST) console.log('[trust] blur'); if (state.trackingEnabled) __tf.beginOff('blur'); });
-window.addEventListener('focus', function(){ if (DEBUG_TRUST) console.log('[trust] focus'); if (state.trackingEnabled) __tf.endOff('focus'); });
-
-// --- Wire events ---
-if (els.startBtn) els.startBtn.addEventListener("click", function(e){ e.preventDefault(); startQuiz(); });
-if (els.nextBtn) els.nextBtn.addEventListener("click", function(e){ e.preventDefault(); nextOrFinish(); });
-if (els.prevBtn) els.prevBtn.addEventListener("click", function(e){ e.preventDefault(); prev(); });
-
-// --- Init ---
-ensureAnonAuth().then(function(){ return loadQuizzes(); });
-
-
-// ===== PATCH AUTRES =====
-window.__renderOtherPatch = function(question){
-  if(!question.otherEnabled) return;
-  const answers = document.getElementById('answers');
-  if(!answers) return;
-  const labels = answers.querySelectorAll('label');
-  if(labels[3]){
-    labels[3].innerHTML = '<input type="radio" name="answer" value="other"> Autres : <input type="text" id="otherText" style="display:none">';
-    const radio = labels[3].querySelector('input[type=radio]');
-    const input = labels[3].querySelector('#otherText');
-    radio.addEventListener('change', ()=> input.style.display='inline-block');
+function pick(value) {
+  const q = s.questions[s.idx];
+  s.chosen[q.id] = value === "other" ? "other" : Number(value);
+  const ta = els.questionBox.querySelector(".other-input");
+  if (ta) {
+    ta.classList.toggle("hidden", value !== "other");
+    if (value === "other") ta.focus();
   }
-};
+  save();
+  renderProgress();
+}
+
+function renderProgress() {
+  const total = s.questions.length;
+  const done = answeredCount();
+  els.progressText.textContent = done + " / " + total + " réponse" + (done > 1 ? "s" : "");
+  els.progressFill.style.width = Math.round((done / total) * 100) + "%";
+  els.qNav.innerHTML = navDots(true);
+  const flagged = Object.keys(s.flagged).filter((k) => s.flagged[k]).length;
+  els.navSummary.textContent = (total - done) + " sans réponse" + (flagged ? " · " + flagged + " à revoir" : "");
+}
+
+function navDots(markCurrent) {
+  return s.questions.map((q, i) => {
+    const cls = ["q-dot"];
+    if (q.id in s.chosen) cls.push("answered");
+    if (s.flagged[q.id]) cls.push("flagged");
+    if (markCurrent && i === s.idx) cls.push("current");
+    return '<button type="button" class="' + cls.join(" ") + '" data-go="' + i + '" aria-label="Question ' + (i + 1) + '">' + (i + 1) + "</button>";
+  }).join("");
+}
+
+function openZoom(url) {
+  const z = document.createElement("div");
+  z.className = "zoom";
+  z.innerHTML = '<img src="' + esc(url) + '" alt="Image agrandie">';
+  z.addEventListener("click", () => z.remove());
+  document.body.appendChild(z);
+  const onKey = (e) => { if (e.key === "Escape") { z.remove(); document.removeEventListener("keydown", onKey); } };
+  document.addEventListener("keydown", onKey);
+}
+
+// ---------- Navigation ----------
+function next() {
+  if (s.idx === s.questions.length - 1) { openReview(); return; }
+  goTo(s.idx + 1);
+}
+function openReview() {
+  accumulateTime();
+  save();
+  const total = s.questions.length, done = answeredCount();
+  const missing = total - done;
+  els.reviewText.innerHTML = missing
+    ? "Vous avez répondu à <b>" + done + " question" + (done > 1 ? "s" : "") + " sur " + total + "</b>. Cliquez sur un numéro pour y revenir. Les questions sans réponse seront comptées comme fausses."
+    : "Vous avez répondu à <b>toutes les questions</b>. Vous pouvez encore revenir sur une question en cliquant sur son numéro.";
+  els.reviewNav.innerHTML = navDots(false);
+  show("review");
+}
+
+// ---------- Chronomètre ----------
+function startTimer() {
+  if (tick) clearInterval(tick);
+  if (!s.endAt) { els.timer.classList.add("hidden"); return; }
+  els.timer.classList.remove("hidden");
+  const label = els.timer.querySelector("span");
+  const paint = () => {
+    const left = s.endAt - Date.now();
+    if (left <= 0) { clearInterval(tick); label.textContent = "0:00"; submit("timer"); return; }
+    const sec = Math.ceil(left / 1000);
+    label.textContent = Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+    els.timer.classList.toggle("warn", sec <= 60);
+  };
+  paint();
+  tick = setInterval(paint, 250);
+}
+
+// ---------- Indice de confiance (sorties de fenêtre) ----------
+// Règles : sorties < 0,8 s ignorées, franchise de 2 s par sortie,
+// score = 100 − 10 × sorties − 1 point par seconde hors fenêtre (borné 0–100).
+let trackingOn = false, isOff = false, offStart = 0, offQid = null;
+function beginOff(reason) {
+  if (!trackingOn || isOff || !s) return;
+  isOff = true; offStart = Date.now();
+  const q = s.questions[s.idx]; offQid = q ? q.id : null;
+  if (DEBUG_TRUST) console.log("[trust] beginOff", reason, offQid);
+}
+function endOff(reason) {
+  if (!trackingOn || !isOff || !s) return;
+  isOff = false;
+  const dur = Date.now() - offStart;
+  if (DEBUG_TRUST) console.log("[trust] endOff", reason, dur);
+  if (dur <= 800) return;
+  const penalized = Math.max(0, dur - 2000);
+  s.trust.events.push({ t: Date.now(), ms: penalized, qid: offQid });
+  s.trust.lostCount += 1;
+  s.trust.totalOutMs += penalized;
+  if (offQid) {
+    const f = s.focusStats[offQid] || (s.focusStats[offQid] = { losses: 0, ms: 0 });
+    f.losses += 1; f.ms += penalized;
+  }
+  save();
+}
+function trustScore() {
+  const v = 100 - s.trust.lostCount * 10 - Math.floor(s.trust.totalOutMs / 1000);
+  return Math.max(0, Math.min(100, v));
+}
+document.addEventListener("visibilitychange", () => (document.hidden ? beginOff("visibility") : endOff("visibility")));
+window.addEventListener("blur", () => beginOff("blur"));
+window.addEventListener("focus", () => endOff("focus"));
+
+// ---------- Envoi ----------
+let submitting = false;
+async function submit(endedBy) {
+  if (!s || submitting) return;
+  submitting = true;
+  trackingOn = false;
+  try { endOff("finish"); } catch (e) {}
+  if (tick) { clearInterval(tick); tick = null; }
+  accumulateTime();
+  if (!s.finishedAt) { s.finishedAt = Date.now(); s.endedBy = endedBy || "submit"; }
+  save();
+  els.submitBtn.disabled = true;
+  els.retryBtn.disabled = true;
+
+  const answers = s.questions.map((q) => {
+    const c = q.id in s.chosen ? s.chosen[q.id] : -1;
+    return {
+      questionId: q.id, questionText: q.text, options: q.options, chosenIndex: c,
+      otherText: c === "other" ? (s.otherText[q.id] || "") : null,
+      timeMs: Math.round(s.timeSpent[q.id] || 0), flagged: !!s.flagged[q.id],
+      focusLosses: (s.focusStats[q.id] && s.focusStats[q.id].losses) || 0,
+      offWindowMs: (s.focusStats[q.id] && s.focusStats[q.id].ms) || 0,
+    };
+  });
+  const payload = {
+    v: 2,
+    candidateName: s.name,
+    quizId: s.quizId,
+    quizTitle: s.quizTitle,
+    total: s.questions.length,
+    answered: answeredCount(),
+    answers,
+    durationMs: s.finishedAt - s.startedAt,
+    endedBy: s.endedBy,
+    trust: Object.assign({}, s.trust, { score: trustScore() }),
+    uid: auth.currentUser ? auth.currentUser.uid : null,
+    createdAt: serverTimestamp(),
+  };
+  try {
+    await ensureAnonAuth();
+    payload.uid = auth.currentUser.uid;
+    await addDoc(collection(db, "results"), payload);
+    const first = s.name.split(/\s+/)[0];
+    els.doneTitle.textContent = "Merci " + first + " !";
+    els.doneText.textContent = (s.endedBy === "timer" ? "Le temps imparti est écoulé. " : "") +
+      "Vos réponses ont bien été transmises (" + payload.answered + "/" + payload.total + " questions, " + fmtDuration(payload.durationMs) + "). Le recruteur reviendra vers vous rapidement.";
+    clearSaved();
+    s = null;
+    show("done");
+  } catch (e) {
+    console.error("[submit]", e);
+    show("error");
+  } finally {
+    submitting = false;
+    els.submitBtn.disabled = false;
+    els.retryBtn.disabled = false;
+  }
+}
+
+// ---------- Reprise après rechargement ----------
+function checkResume() {
+  const saved = loadSaved();
+  if (!saved || !saved.questions || !saved.questions.length) return;
+  s = saved;
+  const expired = s.endAt && Date.now() > s.endAt;
+  els.resumeText.textContent = "« " + s.quizTitle + " » — " + s.name + " — " + answeredCount() + "/" + s.questions.length + " réponses" +
+    (expired ? " (temps écoulé : vos réponses vont être envoyées)" : "");
+  els.resumeBtn.textContent = expired || s.finishedAt ? "Envoyer mes réponses" : "Reprendre";
+  els.resumeBox.classList.remove("hidden");
+  els.resumeBtn.onclick = () => {
+    s.trust.reloads = (s.trust.reloads || 0) + 1;
+    save();
+    if (expired || s.finishedAt) { submit(s.endedBy || "timer"); return; }
+    enterQuiz();
+  };
+}
+
+// ---------- Événements ----------
+els.startBtn.addEventListener("click", startClicked);
+els.name.addEventListener("keydown", (e) => { if (e.key === "Enter") startClicked(); });
+els.prestartCancel.addEventListener("click", () => els.prestart.close());
+els.prevBtn.addEventListener("click", () => { if (s.idx > 0) goTo(s.idx - 1); });
+els.nextBtn.addEventListener("click", next);
+els.flagBtn.addEventListener("click", () => {
+  const q = s.questions[s.idx];
+  s.flagged[q.id] = !s.flagged[q.id];
+  els.flagBtn.setAttribute("aria-pressed", s.flagged[q.id] ? "true" : "false");
+  save(); renderProgress();
+});
+[els.qNav, els.reviewNav].forEach((nav) => nav.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-go]");
+  if (b) goTo(Number(b.dataset.go));
+}));
+els.backToQuizBtn.addEventListener("click", () => goTo(s.idx));
+els.submitBtn.addEventListener("click", () => submit("submit"));
+els.retryBtn.addEventListener("click", () => submit(s && s.endedBy));
+
+// Raccourcis clavier pendant le test : A–D / 1–9 pour répondre, flèches pour naviguer, Entrée = suivant
+document.addEventListener("keydown", (e) => {
+  if (!s || $("step-quiz").classList.contains("hidden")) return;
+  if (e.target.closest("textarea, input[type=text], dialog") || e.ctrlKey || e.metaKey || e.altKey) return;
+  const q = s.questions[s.idx];
+  const k = e.key.toUpperCase();
+  let pos = LETTERS.indexOf(k);
+  if (pos < 0 && /^[1-9]$/.test(k)) pos = Number(k) - 1;
+  if (pos >= 0 && pos < q.order.length) {
+    const radio = els.questionBox.querySelectorAll('input[name="ans"]')[pos];
+    if (radio) { radio.checked = true; pick(radio.value); }
+    e.preventDefault();
+  } else if (e.key === "Enter" || e.key === "ArrowRight") { e.preventDefault(); next(); }
+  else if (e.key === "ArrowLeft" && s.idx > 0) { e.preventDefault(); goTo(s.idx - 1); }
+});
+
+// Avertit avant de quitter la page pendant le test
+window.addEventListener("beforeunload", (e) => {
+  if (s && !submitting && !$("step-quiz").classList.contains("hidden")) { e.preventDefault(); e.returnValue = ""; }
+});
+
+// ---------- Initialisation ----------
+checkResume();
+ensureAnonAuth().then(loadQuizzes).catch((e) => {
+  console.error("[auth]", e);
+  els.quizList.innerHTML = '<div class="alert alert-danger">' + icon("alert") + '<div class="alert-body">Connexion au service impossible. Rechargez la page.</div></div>';
+});

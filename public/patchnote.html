@@ -3,44 +3,63 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pôle Sud QCM – Patch Notes</title>
-  <link rel="icon" type="image/png" href="/favicon.png">
-  <link rel="stylesheet" href="/styles.css">
-  <style>
-    /* Styles propres a la page Patch Notes */
-    .pn-version{ margin-bottom:22px; }
-    .pn-version h2{ color:var(--ink); display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-    .pn-ver-tag{
-      background:linear-gradient(135deg, var(--accent), var(--accent2));
-      color:#061016; font-weight:800; padding:4px 12px; border-radius:999px; font-size:15px;
-    }
-    .pn-date{ font-size:13px; color:var(--muted); font-weight:400; }
-    .pn-list{ list-style:none; padding:0; margin:10px 0 0; display:grid; gap:8px; }
-    .pn-list li{ display:flex; gap:10px; align-items:flex-start; line-height:1.5; }
-    .pn-chip{
-      flex-shrink:0; font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px;
-      text-transform:uppercase; letter-spacing:.3px; margin-top:2px;
-    }
-    .pn-add{ background:rgba(34,211,238,.15); color:#22d3ee; border:1px solid rgba(34,211,238,.4); }
-    .pn-fix{ background:rgba(239,68,68,.15); color:#f87171; border:1px solid rgba(239,68,68,.4); }
-    .pn-imp{ background:rgba(168,162,255,.15); color:#a5b4fc; border:1px solid rgba(168,162,255,.4); }
-  </style>
+  <title>Pôle Sud QCM – Notes de version</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <script>try{var t=localStorage.getItem('qcm.theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module">import { initPage } from "./js/ui.js"; initPage();</script>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <a class="logo" href="/"><img src="/assets/logo-polesud.png" alt="Pôle Sud"> <span>Portail</span></a>
-      <a class="logo" href="/">← Retour à l'accueil</a>
-      <div class="small">Patch Notes</div>
+  <header class="app-header">
+    <div class="wrap">
+      <a class="brand-link" href="index.html">
+        <img src="assets/logo-polesud.png" alt="Pôle Sud">
+        <span class="brand-sep"></span>
+        <span class="brand-sub">Notes de version</span>
+      </a>
+      <div class="header-actions">
+        <a class="btn btn-ghost btn-sm" href="index.html"><i data-icon="arrow-left" class="icon-sm"></i> Accueil</a>
+        <button class="btn btn-ghost btn-icon" type="button" data-theme-toggle></button>
+      </div>
     </div>
+  </header>
 
-    <div class="card">
-      <h1>📝 Notes de version</h1>
-      <p class="small">Historique des ajouts, corrections et améliorations de la plateforme QCM.</p>
+  <main class="page">
+    <div class="wrap wrap-narrow">
+      <h1>Notes de version</h1>
+      <p class="muted" style="margin:8px 0 28px">Historique des ajouts, corrections et améliorations de la plateforme QCM.</p>
 
       <!--
         ====== COMMENT AJOUTER UNE NOUVELLE VERSION ======
         Copier un bloc <div class="pn-version"> ... </div> et le placer EN HAUT de la liste
+        (la version la plus récente en premier). Pour chaque ligne, utiliser une pastille :
+          <span class="pn-chip pn-add">Ajout</span>          -> nouvelle fonctionnalité
+          <span class="pn-chip pn-fix">Correction</span>     -> bug corrigé
+          <span class="pn-chip pn-imp">Amélioration</span>   -> amélioration / interface
+          <span class="pn-chip pn-sec">Sécurité</span>       -> sécurité
+        ===================================================
+      -->
+
+      <div class="card">
+      <div class="pn-version">
+        <h2><span class="pn-ver-tag">v2.0</span> Nouvelle version <span class="pn-date">— 08/10/2026</span></h2>
+        <ul class="pn-list">
+          <li><span class="pn-chip pn-sec">Sécurité</span> Les bonnes réponses ne sont plus envoyées au navigateur des candidats : elles sont stockées dans un espace réservé aux administrateurs, et le score est calculé côté admin.</li>
+          <li><span class="pn-chip pn-sec">Sécurité</span> Un candidat ne peut plus injecter de code dans l'espace admin via son nom ou ses réponses.</li>
+          <li><span class="pn-chip pn-imp">Amélioration</span> Nouveau design clair et aéré aux couleurs Pôle Sud, avec mode sombre.</li>
+          <li><span class="pn-chip pn-add">Ajout</span> Candidat : barre de progression, vue d'ensemble des questions, questions « à revoir », récapitulatif avant envoi, raccourcis clavier.</li>
+          <li><span class="pn-chip pn-add">Ajout</span> Candidat : la progression est conservée en cas de rechargement accidentel (les rechargements sont signalés à l'admin).</li>
+          <li><span class="pn-chip pn-add">Ajout</span> Admin : tableau des résultats avec recherche, indicateurs, export CSV (Excel) et analyse du taux de réussite par question.</li>
+          <li><span class="pn-chip pn-add">Ajout</span> Admin : duplication d'un QCM, lien direct à envoyer au candidat, QCM masquables, temps passé par question.</li>
+          <li><span class="pn-chip pn-imp">Amélioration</span> Admin : éditeur de question en fenêtre, bonne réponse cochée directement (fini l'index 0-3).</li>
+          <li><span class="pn-chip pn-fix">Correction</span> Nettoyage des anciens fichiers inutilisés qui étaient publiés en ligne.</li>
+        </ul>
+      </div>
+
+      <div class="pn-version"> ... </div> et le placer EN HAUT de la liste
         (la version la plus récente en premier). Pour chaque ligne, utiliser une pastille :
           <span class="pn-chip pn-add">Ajout</span>          -> nouvelle fonctionnalité
           <span class="pn-chip pn-fix">Correction</span>     -> bug corrigé
@@ -106,8 +125,8 @@
           <li><span class="pn-chip pn-add">Ajout</span> Espace admin : création/édition de QCM, gestion des questions, résultats détaillés par candidat.</li>
         </ul>
       </div>
-
+      </div>
     </div>
-  </div>
+  </main>
 </body>
 </html>

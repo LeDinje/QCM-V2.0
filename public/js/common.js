@@ -1,11 +1,13 @@
 /**
- * Firebase init shared by admin & candidate
- * Replace with your Firebase config (Project settings → General → Web App SDK config)
+ * Initialisation Firebase partagée par l'accueil, l'espace candidat et l'espace admin.
+ * Tous les accès Firebase passent par ce fichier (aucun autre script n'importe gstatic).
  */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
 import { getAuth, signInAnonymously, onAuthStateChanged, signOut,
-         createUserWithEmailAndPassword, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
-import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+         signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import { getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot,
+         query, orderBy, serverTimestamp, writeBatch, deleteField } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
 
 export const firebaseApp = initializeApp({
   apiKey: "AIzaSyAt7nmCKcfLkzfaKVnbg7DdrP_8gerDJIg",
@@ -30,13 +32,18 @@ export async function ensureAnonAuth() {
 export async function adminLogin(email, password) {
   return signInWithEmailAndPassword(auth, email, password);
 }
-export async function adminRegister(email, password) {
-  return createUserWithEmailAndPassword(auth, email, password);
-}
 export async function adminLogout() {
   return signOut(auth);
 }
 
+/** Envoie une image dans Firebase Storage et retourne son URL publique. */
+export async function uploadImage(path, file) {
+  const sRef = storageRef(getStorage(firebaseApp), path);
+  await uploadBytes(sRef, file);
+  return getDownloadURL(sRef);
+}
+
 export {
-  collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, writeBatch, onAuthStateChanged
+  collection, doc, getDoc, getDocs, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy,
+  serverTimestamp, writeBatch, deleteField, onAuthStateChanged
 };

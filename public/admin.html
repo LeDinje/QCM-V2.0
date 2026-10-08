@@ -1,119 +1,218 @@
 <!doctype html>
 <html lang="fr">
 <head>
-  <link rel="icon" type="image/png" href="/favicon.png">
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Pôle Sud QCM – Admin</title>
-  <link rel="stylesheet" href="/styles.css">
-  <script type="module" src="/js/admin.js"></script>
+  <title>Pôle Sud QCM – Administration</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <script>try{var t=localStorage.getItem('qcm.theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/admin.js"></script>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <a class="logo" href="/"><img src="/assets/logo-polesud.png" alt="Pôle Sud"> <span>Portail</span></a>
-      <a class="logo" href="/">← Portail</a>
-      <div class="small">Admin</div>
+  <header class="app-header">
+    <div class="wrap">
+      <a class="brand-link" href="index.html">
+        <img src="assets/logo-polesud.png" alt="Pôle Sud">
+        <span class="brand-sep"></span>
+        <span class="brand-sub">Administration</span>
+      </a>
+      <nav class="tabs hidden" id="tabs" role="tablist" style="margin-left:24px">
+        <button class="tab" role="tab" aria-selected="true" data-view="quizzes" type="button"><i data-icon="list" class="icon-sm"></i> Questionnaires</button>
+        <button class="tab" role="tab" aria-selected="false" data-view="results" type="button"><i data-icon="chart" class="icon-sm"></i> Résultats</button>
+      </nav>
+      <div class="header-actions">
+        <span class="small header-email" id="whoami"></span>
+        <button class="btn btn-ghost btn-icon" type="button" data-theme-toggle></button>
+        <button class="btn btn-ghost btn-icon hidden" type="button" id="logoutBtn" title="Se déconnecter" aria-label="Se déconnecter"><i data-icon="logout"></i></button>
+      </div>
     </div>
+  </header>
 
-    <div class="card" id="card-auth">
-      <h1>Connexion Admin</h1>
-      <div class="grid-2">
-        <div><input id="email" placeholder="Email"></div>
-        <div><input id="password" type="password" placeholder="Mot de passe"></div>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <button class="btn" id="loginBtn">Se connecter</button>
-        <button id="registerBtn">Créer un compte</button>
-      </div>
-</div>
+  <main class="page">
+    <div class="wrap">
 
-    <div class="card" id="card-admin" style="display:none">
-      <div class="row" style="justify-content:space-between">
-        <h1>Gestion • QCM</h1>
-        <div class="row">
-          <span id="whoami" class="badge"></span>
-          <button id="logoutBtn">Se déconnecter</button>
-        </div>
-      </div>
-
-      <h2>Créer / éditer un QCM</h2>
-
-      <div class="row" style="gap:8px; align-items:flex-end; justify-content:space-between">
-        <div style="min-width:280px;flex:1">
-          <label class="small" for="quizSelectAdmin">Sélectionner un QCM existant</label><br>
-          <select id="quizSelectAdmin"></select>
-        </div>
-        <div class="row" style="gap:8px">
-          <button id="newQuizBtn">Créer un nouveau QCM</button>
-          <button class="btn" id="saveQuizBtn">Enregistrer QCM</button>
-        </div>
-      </div>
-
-      <div class="grid-2" style="margin-top:12px">
-        <div>
-          <label class="small" for="qTitle">Titre du QCM</label>
-          <input id="qTitle" placeholder="Ex : Technicien Helpdesk N1">
-        </div>
-        <div>
-          <label class="small" for="qDesc">Description courte (optionnel)</label>
-          <input id="qDesc" placeholder="Ex : 20 questions / 15 min">
-        </div>
-        <div class="row">
-          <label class="small"><input type="checkbox" id="qTimerEnabled"> Timer activé</label>
-          <label class="small" for="qTimer" style="margin-left:8px">Minutes</label>
-          <input id="qTimer" type="number" min="1" value="10" placeholder="Minutes" style="width:120px">
-        </div>
-      </div>
-
-      <div style="margin-top:16px">
-        <h2>Questions du QCM sélectionné</h2>
-        <div id="questionsList" class="list"></div>
-        <div class="card" style="margin-top:12px">
-          <h3 id="qFormTitle">Ajouter une question</h3>
-          <input id="qText" placeholder="Intitulé de la question" style="width:100%; margin-bottom:8px;">
-          <div style="margin-bottom:10px">
-            <label class="small" style="display:block;margin-bottom:6px;">Image (optionnelle)</label>
-            <input id="qImage" type="file" accept="image/*">
-            <img id="qImagePreview" alt="Aperçu image" style="display:none;max-width:100%;max-height:240px;margin-top:10px;border-radius:10px;border:1px solid rgba(0,0,0,.08);">
+      <!-- Connexion -->
+      <section id="view-auth" class="hidden">
+        <form class="card auth-card stack-lg" id="loginForm" novalidate>
+          <div>
+            <h1>Connexion</h1>
+            <p class="muted" style="margin-top:6px">Accès réservé aux administrateurs.</p>
           </div>
-          <div class="grid-2">
-            <input id="opt0" placeholder="Réponse A">
-            <input id="opt1" placeholder="Réponse B">
-            <input id="opt2" placeholder="Réponse C">
-            <input id="opt3" placeholder="Réponse D">
-            <label style="font-size:14px;display:block;margin-top:8px;">
-            <input type="checkbox" id="otherEnabled">
-            Activer "Autres" (réponse libre)
-            </label>
-
+          <div class="field">
+            <label for="email">Adresse e-mail</label>
+            <input class="input" id="email" type="email" autocomplete="username" required>
           </div>
-          <div class="row" style="margin-top:8px">
-            <label class="small">Index de la bonne réponse (0-3)</label>
-            <input id="correctIndex" type="number" min="0" max="3" value="0" style="width:100px">
-            <button class="btn" id="addQuestionBtn">Ajouter</button>
-            <button id="cancelEditBtn" style="display:none">Annuler l'édition</button>
+          <div class="field">
+            <label for="password">Mot de passe</label>
+            <input class="input" id="password" type="password" autocomplete="current-password" required>
+          </div>
+          <div class="small" id="authError" role="alert" style="color:var(--danger)"></div>
+          <button class="btn btn-primary btn-lg btn-block" id="loginBtn" type="submit">Se connecter</button>
+        </form>
+      </section>
+
+      <!-- Chargement -->
+      <section id="view-loading" class="row" style="justify-content:center;padding:80px 0"><div class="spinner"></div></section>
+
+      <!-- Questionnaires -->
+      <section id="view-quizzes" class="hidden">
+        <div id="securityBanner" class="alert alert-warn hidden" style="margin-bottom:24px">
+          <i data-icon="shield"></i>
+          <div class="alert-body">
+            <b>Bonnes réponses visibles par les candidats</b>
+            <span id="securityText"></span>
+          </div>
+          <button class="btn btn-primary btn-sm" id="migrateBtn" type="button">Sécuriser maintenant</button>
+        </div>
+
+        <div class="admin-layout">
+          <aside class="card card-sm sidebar">
+            <div class="row-between" style="margin-bottom:14px">
+              <h3>Questionnaires</h3>
+              <button class="btn btn-primary btn-sm" id="newQuizBtn" type="button"><i data-icon="plus" class="icon-sm"></i> Nouveau</button>
+            </div>
+            <div class="quiz-nav" id="quizNav"></div>
+            <p class="small" style="margin-top:12px">Glissez-déposez pour changer l'ordre affiché aux candidats.</p>
+          </aside>
+
+          <div class="stack-lg" id="editor">
+            <div class="card">
+              <div class="card-header">
+                <div>
+                  <h2 id="editorTitle">Paramètres</h2>
+                  <div class="card-sub" id="editorMeta"></div>
+                </div>
+                <div class="row" style="gap:6px">
+                  <button class="btn btn-sm" id="copyLinkBtn" type="button" title="Copier le lien direct à envoyer au candidat"><i data-icon="link" class="icon-sm"></i> Lien candidat</button>
+                  <button class="btn btn-sm" id="duplicateBtn" type="button"><i data-icon="copy" class="icon-sm"></i> Dupliquer</button>
+                  <button class="btn btn-sm btn-danger" id="deleteQuizBtn" type="button"><i data-icon="trash" class="icon-sm"></i> Supprimer</button>
+                </div>
+              </div>
+              <form id="quizForm" class="stack-lg">
+                <div class="grid-2">
+                  <div class="field">
+                    <label for="qTitle">Titre</label>
+                    <input class="input" id="qTitle" maxlength="120" placeholder="Ex : Technicien Helpdesk N1" required>
+                  </div>
+                  <div class="field">
+                    <label for="qDesc">Description courte <span class="muted">(optionnel)</span></label>
+                    <input class="input" id="qDesc" maxlength="200" placeholder="Ex : Réseau, Windows, support utilisateur">
+                  </div>
+                </div>
+                <div class="row" style="gap:28px">
+                  <label class="switch"><input type="checkbox" id="qTimerEnabled"> Chronométré</label>
+                  <div class="row" style="gap:8px">
+                    <input class="input" id="qTimer" type="number" min="1" max="600" value="15" style="width:90px" aria-label="Durée en minutes">
+                    <span class="small">minutes</span>
+                  </div>
+                  <label class="switch"><input type="checkbox" id="qActive" checked> Visible par les candidats</label>
+                  <span class="spacer"></span>
+                  <button class="btn btn-primary" type="submit" id="saveQuizBtn"><i data-icon="check" class="icon-sm"></i> Enregistrer</button>
+                </div>
+              </form>
+            </div>
+
+            <div class="card">
+              <div class="card-header" style="align-items:center">
+                <div>
+                  <h2>Questions <span class="badge" id="qCount" style="margin-left:6px;vertical-align:middle">0</span></h2>
+                  <div class="card-sub">La bonne réponse est surlignée en vert. Glissez-déposez pour réordonner.</div>
+                </div>
+                <button class="btn btn-primary" id="addQuestionBtn" type="button"><i data-icon="plus" class="icon-sm"></i> Ajouter une question</button>
+              </div>
+              <div class="list" id="questionsList"></div>
+            </div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <hr>
-      <h2>Résultats (QCM sélectionné)</h2>
-      <div id="resultsList" class="list"></div>
-      <div id="candidateDetail" style="margin-top:12px"></div>
+      <!-- Résultats -->
+      <section id="view-results" class="hidden stack-lg">
+        <div class="row-between">
+          <div>
+            <h1>Résultats</h1>
+            <p class="muted" style="margin-top:4px">Mise à jour en temps réel.</p>
+          </div>
+          <div class="row" style="gap:8px">
+            <select class="select" id="resultsQuiz" style="width:auto;min-width:220px" aria-label="Filtrer par questionnaire"></select>
+            <div class="input-icon" style="width:220px">
+              <i data-icon="search"></i>
+              <input class="input" id="resultsSearch" placeholder="Rechercher un nom" aria-label="Rechercher un candidat">
+            </div>
+            <button class="btn" id="exportBtn" type="button"><i data-icon="download" class="icon-sm"></i> Export CSV</button>
+          </div>
+        </div>
 
-      <hr>
-      <h2>QCM existants (vue synthèse)</h2>
-      <div id="quizzesSummary" class="list"></div>
+        <div class="kpis" id="kpis"></div>
+
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr><th>Candidat</th><th>Questionnaire</th><th>Date</th><th>Score</th><th class="num">Durée</th><th>Confiance</th><th></th></tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
+
+        <div class="card hidden" id="statsCard">
+          <div class="card-header">
+            <div>
+              <h2>Analyse par question</h2>
+              <div class="card-sub">Taux de bonnes réponses sur l'ensemble des candidats de ce questionnaire. Utile pour repérer les questions trop faciles, trop difficiles ou ambiguës.</div>
+            </div>
+          </div>
+          <div id="statsBody"></div>
+        </div>
+      </section>
     </div>
-  </div>
+  </main>
 
-  <div id="modalResults" class="modal hidden">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content">
-      <button id="modalClose" class="btn-outline" style="position:absolute;right:12px;top:12px;">×</button>
-      <div id="modalBody" style="margin-top:16px;"></div>
+  <!-- Édition d'une question -->
+  <dialog class="modal" id="questionDialog">
+    <form method="dialog" id="questionForm">
+      <div class="modal-head">
+        <h2 id="questionDialogTitle">Nouvelle question</h2>
+        <button class="btn btn-ghost btn-icon" value="cancel" formnovalidate aria-label="Fermer"><i data-icon="x"></i></button>
+      </div>
+      <div class="modal-body stack-lg">
+        <div class="field">
+          <label for="qText">Intitulé</label>
+          <textarea class="textarea" id="qText" rows="3" maxlength="2000" required placeholder="Ex : Quel protocole attribue automatiquement une adresse IP ?"></textarea>
+        </div>
+        <div class="field">
+          <span class="label">Image <span class="muted">(optionnelle)</span></span>
+          <div class="img-preview hidden" id="imgPreview">
+            <img alt="Aperçu" id="imgPreviewImg">
+            <span class="spacer"></span>
+            <button class="btn btn-sm btn-danger" type="button" id="imgRemoveBtn">Retirer</button>
+          </div>
+          <input type="file" id="qImage" accept="image/*" class="small">
+        </div>
+        <div class="field">
+          <span class="label">Réponses — cochez la bonne</span>
+          <div class="stack" style="gap:8px" id="answerInputs"></div>
+        </div>
+        <label class="switch"><input type="checkbox" id="otherEnabled"> Remplacer la réponse D par « Autre réponse » (texte libre, non noté)</label>
+        <div class="small" id="questionError" role="alert" style="color:var(--danger)"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" value="cancel" formnovalidate>Annuler</button>
+        <button class="btn btn-primary" id="saveQuestionBtn" value="save">Enregistrer la question</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Détail d'un candidat -->
+  <dialog class="modal modal-lg" id="detailDialog">
+    <div class="modal-head">
+      <div id="detailHead"></div>
+      <button class="btn btn-ghost btn-icon" type="button" id="detailClose" aria-label="Fermer"><i data-icon="x"></i></button>
     </div>
-  </div>
+    <div class="modal-body" id="detailBody"></div>
+  </dialog>
 </body>
 </html>
