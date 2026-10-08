@@ -8,6 +8,7 @@
 import { auth, db, collection, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy,
          serverTimestamp, writeBatch, deleteField, onAuthStateChanged, adminLogin, adminLogout, uploadImage } from "./common.js";
 import { esc, icon, initPage, toast, confirmDialog, fmtDuration, toDate, levelClass } from "./ui.js";
+import { startAdmins, stopAdmins } from "./admins.js";
 
 initPage();
 
@@ -23,6 +24,7 @@ let currentQuizId = null;
 const unsubs = [];             // écoutes globales
 const questionUnsubs = {};     // quizId -> écoute des questions
 let booted = false;
+let isSuper = false;           // super admin : accès à l'onglet « Admins »
 
 // ---------- Connexion ----------
 const AUTH_ERRORS = {
@@ -35,12 +37,13 @@ const AUTH_ERRORS = {
 };
 
 function showView(name) {
-  ["auth", "loading", "quizzes", "results"].forEach((v) => $("view-" + v).classList.toggle("hidden", v !== name));
-  const inApp = name === "quizzes" || name === "results";
+  if (name === "admins" && !isSuper) name = "quizzes";
+  ["auth", "loading", "quizzes", "results", "admins"].forEach((v) => $("view-" + v).classList.toggle("hidden", v !== name));
+  const inApp = name === "quizzes" || name === "results" || name === "admins";
   $("tabs").classList.toggle("hidden", !inApp);
   $("logoutBtn").classList.toggle("hidden", !inApp);
   document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", t.dataset.view === name ? "true" : "false"));
-  if (inApp) history.replaceState(null, "", name === "results" ? "#resultats" : "#");
+  if (inApp) history.replaceState(null, "", name === "results" ? "#resultats" : name === "admins" ? "#admins" : "#");
 }
 
 $("loginForm").addEventListener("submit", async (e) => {
@@ -58,17 +61,27 @@ $("logoutBtn").addEventListener("click", () => adminLogout());
 onAuthStateChanged(auth, async (user) => {
   if (!user || user.isAnonymous) { teardown(); $("whoami").textContent = ""; showView("auth"); return; }
   showView("loading");
-  let ok = false;
-  try { ok = (await getDoc(doc(db, "admins", user.uid))).exists(); } catch (e) { console.warn("[isAdmin]", e); }
+  let ok = false, me = null;
+  try {
+    const snap = await getDoc(doc(db, "admins", user.uid));
+    me = snap.exists() ? snap.data() || {} : null;
+    ok = !!me && me.disabled !== true;
+  } catch (e) { console.warn("[isAdmin]", e); }
   if (!ok) {
     await adminLogout();
     showView("auth");
-    $("authError").textContent = "Ce compte n'a pas les droits administrateur.";
+    $("authError").textContent = me && me.disabled ? "Ce compte administrateur est désactivé." : "Ce compte n'a pas les droits administrateur.";
     return;
   }
   $("whoami").textContent = user.email || "";
+  // mémorise l'e-mail et la date de dernière connexion (affichés dans l'onglet « Admins »)
+  updateDoc(doc(db, "admins", user.uid), Object.assign({ lastLoginAt: serverTimestamp() }, user.email ? { email: user.email } : {}))
+    .catch((e) => console.warn("[lastLogin]", e));
+  isSuper = me.role === "superadmin";
+  $("adminsTab").classList.toggle("hidden", !isSuper);
+  if (isSuper) startAdmins(user);
   boot();
-  showView(location.hash === "#resultats" ? "results" : "quizzes");
+  showView(location.hash === "#resultats" ? "results" : location.hash === "#admins" ? "admins" : "quizzes");
 });
 
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
@@ -77,6 +90,9 @@ document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () 
 }));
 
 function teardown() {
+  stopAdmins();
+  isSuper = false;
+  $("adminsTab").classList.add("hidden");
   unsubs.splice(0).forEach((u) => u());
   Object.keys(questionUnsubs).forEach((k) => { questionUnsubs[k](); delete questionUnsubs[k]; });
   booted = false;
