@@ -167,8 +167,8 @@ $("migrateBtn").addEventListener("click", async () => {
   if (!legacy.length) return;
   const ok = await confirmDialog({
     title: "Sécuriser les bonnes réponses ?",
-    message: "Les bonnes réponses seront retirées des questions et rangées dans un espace réservé aux administrateurs.<br><br>" +
-             "<b>À ne faire qu'une fois la v2 en production</b> : l'ancienne version du site, si elle est encore en ligne, ne pourra plus noter ces questions.",
+    message: "Les bonnes réponses seront retirées des questions et rangées dans un espace réservé aux administrateurs. " +
+             "Les candidats ne pourront plus les voir. Le calcul des scores n'est pas modifié.",
     confirmText: "Sécuriser",
   });
   if (!ok) return;

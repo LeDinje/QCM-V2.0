@@ -37,15 +37,10 @@ service cloud.firestore {
         && d.candidateName.size() <= 100
         && d.quizId is string;
     }
-    // PHASE D'APERÇU : l'ancien site (v1) est encore en ligne et envoie des résultats avec un score.
-    // Une fois la v2 mise en production, SUPPRIMER cette fonction et « || isLegacyResult(...) » ci-dessous.
-    function isLegacyResult(d) {
-      return !d.keys().hasAny(['v']);
-    }
     match /results/{resultId} {
       allow create: if isSignedIn()
         && request.resource.data.uid == request.auth.uid
-        && (isV2Result(request.resource.data) || isLegacyResult(request.resource.data));
+        && isV2Result(request.resource.data);
       allow read, update, delete: if isAdmin();
     }
 

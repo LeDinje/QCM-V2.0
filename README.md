@@ -108,25 +108,14 @@ Le **score** est calculé dans l'espace admin en comparant `chosenIndex` à `ans
 
 ## Mise en ligne
 
-### 1. Aperçu (sans toucher au site en production)
-
 ```bash
-firebase deploy --only firestore:rules          # règles compatibles ancienne + nouvelle version
-firebase hosting:channel:deploy apercu --expires 7d
+firebase deploy --only hosting,firestore:rules
 ```
 
-La deuxième commande affiche une adresse temporaire (`https://qcm-pole-sud-2--apercu-xxxx.web.app`). Le site habituel reste inchangé.
-⚠️ L'aperçu utilise **la même base de données** que le site en production :
-- ne pas cliquer sur **« Sécuriser maintenant »** pendant l'aperçu (l'ancien site ne pourrait plus noter les questions) ;
-- tester plutôt sur un **QCM de test** que sur les vrais QCM (une question créée ou modifiée dans la v2 n'a plus sa bonne réponse lisible par l'ancien site).
+Le **site** et les **règles** doivent toujours être déployés ensemble (le site v2 écrit dans `answerKeys` et envoie des résultats au format v2, que les règles exigent).
+Lors du premier déploiement de la v2 : se connecter ensuite à l'espace admin et cliquer sur **« Sécuriser maintenant »** dans le bandeau orange, pour déplacer les bonnes réponses des anciennes questions.
 
-### 2. Passage en production
-
-```bash
-firebase deploy --only hosting
-```
-
-Puis, dans l'espace admin, cliquer sur **« Sécuriser maintenant »**. Enfin, retirer la compatibilité v1 dans `firestore.rules` (fonction `isLegacyResult`, voir le commentaire « PHASE D'APERÇU ») et redéployer les règles : `firebase deploy --only firestore:rules`.
+En cas de problème, revenir à la version précédente depuis la console Firebase (Hosting → historique des versions → Restaurer), ou annuler les commits avec `git revert` puis redéployer.
 
 ---
 
