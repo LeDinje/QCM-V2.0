@@ -77,7 +77,11 @@ Fichiers : `public/admin.html` + `public/js/admin.js`.
 2. Onglet **Questionnaires** : liste des QCM à gauche (glisser-déposer pour l'ordre), paramètres à droite (titre, description, chrono, visibilité), boutons **Lien candidat / Dupliquer / Supprimer**, liste des questions (glisser-déposer, bonne réponse en vert) et éditeur de question en fenêtre (bonne réponse cochée directement, image, option « Autre réponse »).
 3. Onglet **Résultats** : filtre par QCM, recherche par nom, indicateurs (candidats, score moyen, confiance, durée), tableau des résultats, **export CSV** (s'ouvre directement dans Excel), **analyse par question** (taux de réussite et temps moyen) et fenêtre de détail par candidat.
 
+4. Onglet **Admins** (super admins uniquement, fichier `public/js/admins.js`) : liste des comptes admin, création d'un compte (sans déconnecter le super admin), e-mail de réinitialisation du mot de passe, rôle, désactivation / réactivation.
+
 Tout est **temps réel** grâce à `onSnapshot`.
+
+> **Premier super admin** : dans la console Firebase → Firestore → collection `admins` → votre document (votre UID), ajouter le champ `role` = `superadmin` (type chaîne).
 
 > **Migration v1 → v2** : les questions créées avant la v2 contiennent la bonne réponse (`correctIndex`) dans un champ lisible par tous. L'espace admin affiche alors un bandeau **« Sécuriser maintenant »** qui déplace ces réponses dans `answerKeys` en un clic. Modifier une ancienne question la sécurise aussi automatiquement.
 
@@ -93,7 +97,8 @@ answerKeys/{quizId}               — bonnes réponses du QCM : { keys: { questi
 results/{resultId}                — un résultat (v: 2) : candidateName, quizId, quizTitle, total, answered,
                                      answers[] (questionId, questionText, options, chosenIndex, otherText, timeMs,
                                      flagged, focusLosses, offWindowMs), durationMs, endedBy, trust{}, uid, createdAt
-admins/{uid}                      — la présence d'un document = cet utilisateur est administrateur
+admins/{uid}                      — un compte admin : email, role ("admin" | "superadmin"), disabled, createdAt,
+                                     createdBy, lastLoginAt
 ```
 
 Le **score** est calculé dans l'espace admin en comparant `chosenIndex` à `answerKeys`. Les anciens résultats (sans `v: 2`) gardent leur score enregistré.
@@ -102,7 +107,7 @@ Le **score** est calculé dans l'espace admin en comparant `chosenIndex` à `ans
 - **QCM et questions** : lecture publique, écriture réservée aux admins.
 - **Bonnes réponses (`answerKeys`)** : lecture et écriture réservées aux admins.
 - **Résultats** : un candidat (même anonyme) peut **créer** son propre résultat au format v2, **sans pouvoir y mettre de score** ; seuls les admins peuvent les lire / modifier / supprimer.
-- **Admins** : gérés **uniquement depuis la console Firebase**.
+- **Admins** : chacun lit son propre document ; un **super admin** gère les autres comptes (jamais le sien). Un compte `disabled: true` perd tous ses droits.
 
 ---
 

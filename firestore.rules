@@ -7,8 +7,18 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function adminDoc() {
+      return /databases/$(database)/documents/admins/$(request.auth.uid);
+    }
+
+    // Admin actif : un document admins/{uid} existe et n'est pas désactivé.
     function isAdmin() {
-      return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return isSignedIn() && exists(adminDoc()) && get(adminDoc()).data.get('disabled', false) != true;
+    }
+
+    // Super admin : admin actif avec role == 'superadmin' (gère les comptes admin).
+    function isSuperAdmin() {
+      return isAdmin() && get(adminDoc()).data.get('role', 'admin') == 'superadmin';
     }
 
     // QCM et questions : lisibles par tous (les candidats doivent les voir), écriture réservée aux admins.
@@ -44,10 +54,19 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
-    // Admins : la présence d'un document = administrateur. Gestion uniquement depuis la console Firebase.
+    // Admins : un document par compte admin { email, role: 'admin' | 'superadmin', disabled, createdAt, createdBy, lastLoginAt }.
+    // - chacun lit son propre document et peut y mettre à jour son e-mail et sa date de dernière connexion ;
+    // - un super admin gère les autres comptes, mais jamais le sien (impossible de se retirer ses propres droits) ;
+    // - le tout premier super admin se désigne depuis la console Firebase (champ role = "superadmin").
     match /admins/{uid} {
-      allow read: if isSignedIn() && request.auth.uid == uid;
-      allow create, update, delete: if false;
+      allow read: if isSignedIn() && (request.auth.uid == uid || isSuperAdmin());
+      allow update: if isSignedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['email', 'lastLoginAt'])
+        && request.resource.data.email == request.auth.token.email;
+      allow create, update: if isSuperAdmin() && request.auth.uid != uid
+        && request.resource.data.role in ['admin', 'superadmin']
+        && request.resource.data.email is string;
+      allow delete: if isSuperAdmin() && request.auth.uid != uid;
     }
   }
 }

@@ -23,6 +23,7 @@
       <nav class="tabs hidden" id="tabs" role="tablist" style="margin-left:24px">
         <button class="tab" role="tab" aria-selected="true" data-view="quizzes" type="button"><i data-icon="list" class="icon-sm"></i> Questionnaires</button>
         <button class="tab" role="tab" aria-selected="false" data-view="results" type="button"><i data-icon="chart" class="icon-sm"></i> Résultats</button>
+        <button class="tab hidden" role="tab" aria-selected="false" data-view="admins" type="button" id="adminsTab"><i data-icon="shield" class="icon-sm"></i> Admins</button>
       </nav>
       <div class="header-actions">
         <span class="small header-email" id="whoami"></span>
@@ -168,6 +169,32 @@
           <div id="statsBody"></div>
         </div>
       </section>
+
+      <!-- Comptes administrateurs (super admin uniquement) -->
+      <section id="view-admins" class="hidden stack-lg">
+        <div class="row-between">
+          <div>
+            <h1>Comptes administrateurs</h1>
+            <p class="muted" style="margin-top:4px">Visible uniquement par les super admins.</p>
+          </div>
+          <button class="btn btn-primary" id="addAdminBtn" type="button"><i data-icon="plus" class="icon-sm"></i> Ajouter un admin</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr><th>Compte</th><th>Rôle</th><th>Statut</th><th>Dernière connexion</th><th>Ajouté le</th><th></th></tr>
+            </thead>
+            <tbody id="adminsBody"></tbody>
+          </table>
+        </div>
+        <div class="alert alert-brand">
+          <i data-icon="info"></i>
+          <div class="alert-body">
+            <b>Mots de passe</b>
+            <span class="small">« Réinitialiser » envoie à l'admin un e-mail Firebase pour qu'il choisisse lui-même un nouveau mot de passe : personne d'autre ne le connaît. Un compte désactivé ne peut plus accéder à l'espace admin, et peut être réactivé à tout moment.</span>
+          </div>
+        </div>
+      </section>
     </div>
   </main>
 
@@ -213,6 +240,42 @@
       <button class="btn btn-ghost btn-icon" type="button" id="detailClose" aria-label="Fermer"><i data-icon="x"></i></button>
     </div>
     <div class="modal-body" id="detailBody"></div>
+  </dialog>
+  <!-- Ajout / modification d'un admin -->
+  <dialog class="modal" id="adminDialog">
+    <form method="dialog" id="adminForm" novalidate>
+      <div class="modal-head">
+        <h2 id="adminDialogTitle">Ajouter un admin</h2>
+        <button class="btn btn-ghost btn-icon" value="cancel" aria-label="Fermer"><i data-icon="x"></i></button>
+      </div>
+      <div class="modal-body stack-lg">
+        <div class="field">
+          <label for="newAdminEmail">Adresse e-mail</label>
+          <input class="input" id="newAdminEmail" type="email" autocomplete="off" placeholder="prenom.nom@polesud.fr">
+        </div>
+        <div class="field" id="newAdminPwdField">
+          <label for="newAdminPwd">Mot de passe provisoire</label>
+          <div class="row" style="flex-wrap:nowrap;gap:8px">
+            <input class="input" id="newAdminPwd" type="text" autocomplete="new-password" minlength="8" style="font-family:ui-monospace,monospace">
+            <button class="btn" type="button" id="genPwdBtn" title="Générer un autre mot de passe"><i data-icon="rotate" class="icon-sm"></i></button>
+          </div>
+          <span class="hint">8 caractères minimum. Vous pouvez le communiquer à l'admin, ou cocher la case ci-dessous pour qu'il choisisse le sien.</span>
+        </div>
+        <label class="switch" id="sendResetWrap"><input type="checkbox" id="sendResetOnCreate" checked> Envoyer un e-mail pour qu'il choisisse son mot de passe</label>
+        <div class="field">
+          <label for="newAdminRole">Rôle</label>
+          <select class="select" id="newAdminRole">
+            <option value="admin">Admin — gère les QCM et les résultats</option>
+            <option value="superadmin">Super admin — gère aussi les comptes admin</option>
+          </select>
+        </div>
+        <div class="small" id="adminError" role="alert" style="color:var(--danger)"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" value="cancel">Annuler</button>
+        <button class="btn btn-primary" id="saveAdminBtn" value="save">Créer le compte</button>
+      </div>
+    </form>
   </dialog>
 </body>
 </html>
