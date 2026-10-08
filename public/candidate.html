@@ -4,54 +4,178 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pôle Sud QCM – Candidat</title>
-  <link rel="icon" type="image/png" href="/favicon.png">
-  <link rel="stylesheet" href="/styles.css">
-  <script type="module" src="/js/candidate.js"></script>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <script>try{var t=localStorage.getItem('qcm.theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/candidate.js"></script>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <a class="logo" href="/"><img src="/assets/logo-polesud.png" alt="Pôle Sud"> <span>Portail</span></a>
-      <div class="small">Candidat</div>
-    </div>
-    <div class="card" id="card-setup">
-      <h1>Démarrer un QCM</h1>
-      <div class="grid-2">
-        <div>
-          <label>Votre prénom & nom</label><br>
-          <input id="candidateName" placeholder="Ex : Jane Doe">
-        </div>
-        <div>
-          <label>Choisir un QCM</label><br>
-          <select id="quizSelect"></select>
-        </div>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <button class="btn" id="startBtn">Démarrer le QCM</button>
-        <span id="quizMeta" class="small"></span>
+  <header class="app-header">
+    <div class="wrap">
+      <a class="brand-link" href="index.html">
+        <img src="assets/logo-polesud.png" alt="Pôle Sud">
+        <span class="brand-sep"></span>
+        <span class="brand-sub">Évaluation candidat</span>
+      </a>
+      <div class="header-actions">
+        <button class="btn btn-ghost btn-icon" type="button" data-theme-toggle></button>
       </div>
     </div>
+  </header>
 
-    <div class="card" id="card-quiz" style="display:none">
-      <div class="row" style="justify-content:space-between">
-        <div><b id="quizTitle"></b></div>
-        <div id="timer" class="timer"></div>
+  <!-- Barre de progression (visible pendant le test) -->
+  <div class="quiz-bar hidden" id="quizBar">
+    <div class="wrap wrap-narrow">
+      <div class="row-between">
+        <div class="quiz-bar-title" id="quizTitle"></div>
+        <div class="row" style="flex-wrap:nowrap;gap:8px">
+          <span class="small" id="progressText"></span>
+          <span class="timer-pill hidden" id="timer"><i data-icon="clock" class="icon-sm"></i><span></span></span>
+        </div>
       </div>
-      <div id="questionBox" style="margin-top:12px"></div>
-      <div class="row" style="margin-top:12px">
-        <button id="prevBtn" class="btn-outline">← Précédent</button>
-        <button id="nextBtn" class="btn">Suivant →</button>
-      </div>
-    </div>
-
-    <div class="card" id="card-results" style="display:none">
-      <h1>Résultat</h1>
-      <p id="scoreText" style="font-size:22px; font-weight:800;"></p>
-      <div class="row" style="margin-top:12px">
-        <a class="btn btn-pill" href="/candidate">Refaire un QCM</a>
-        <a class="btn-outline btn-pill" href="/">Accueil</a>
-      </div>
+      <div class="progress"><div class="progress-fill" id="progressFill" style="width:0"></div></div>
     </div>
   </div>
+
+  <main class="page">
+    <div class="wrap wrap-narrow">
+
+      <!-- 1. Choix du QCM -->
+      <section id="step-setup" class="stack-lg">
+        <div>
+          <span class="eyebrow">Bienvenue</span>
+          <h1 style="margin-top:6px">Démarrer un questionnaire</h1>
+          <p class="muted" style="margin-top:8px">Indiquez votre nom, choisissez le questionnaire communiqué par votre recruteur, puis lancez le test.</p>
+        </div>
+
+        <div id="resumeBox" class="alert alert-brand hidden">
+          <i data-icon="rotate"></i>
+          <div class="alert-body">
+            <b>Un test est en cours sur ce poste</b>
+            <span id="resumeText" class="small"></span>
+          </div>
+          <button class="btn btn-primary btn-sm" id="resumeBtn" type="button">Reprendre</button>
+        </div>
+
+        <div class="card stack-lg">
+          <div class="field">
+            <label for="candidateName">Prénom et nom</label>
+            <div class="input-icon">
+              <i data-icon="user"></i>
+              <input class="input" id="candidateName" autocomplete="name" maxlength="100" placeholder="Ex : Jane Doe">
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="label" id="quizListLabel">Questionnaire</span>
+            <div class="quiz-options" id="quizList" role="radiogroup" aria-labelledby="quizListLabel">
+              <div class="skeleton" style="height:64px"></div>
+              <div class="skeleton" style="height:64px"></div>
+            </div>
+          </div>
+
+          <div class="row-between">
+            <span class="small" id="setupError" role="alert"></span>
+            <button class="btn btn-primary btn-lg" id="startBtn" type="button">Commencer <i data-icon="arrow-right"></i></button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 2. Question en cours -->
+      <section id="step-quiz" class="stack hidden">
+        <div class="card q-card">
+          <div class="row-between">
+            <span class="eyebrow" id="qCounter"></span>
+            <button class="btn btn-sm flag-btn" id="flagBtn" type="button" aria-pressed="false"><i data-icon="flag" class="icon-sm"></i> À revoir</button>
+          </div>
+          <div id="questionBox"></div>
+          <div class="q-foot">
+            <button id="prevBtn" class="btn" type="button"><i data-icon="arrow-left"></i> Précédent</button>
+            <span class="spacer"></span>
+            <span class="kbd-hint"><span class="kbd">A</span>–<span class="kbd">D</span> répondre · <span class="kbd">Entrée</span> suivant</span>
+            <button id="nextBtn" class="btn btn-primary" type="button">Suivant <i data-icon="arrow-right"></i></button>
+          </div>
+        </div>
+        <details class="card card-sm" id="navBox">
+          <summary class="row-between" style="cursor:pointer;list-style:none">
+            <b>Vue d'ensemble des questions</b>
+            <span class="small" id="navSummary"></span>
+          </summary>
+          <div class="q-nav" id="qNav" style="margin-top:16px"></div>
+          <div class="legend" style="margin-top:14px">
+            <span><i class="l-answered"></i> Répondu</span>
+            <span><i></i> Sans réponse</span>
+            <span><i class="l-flagged"></i> À revoir</span>
+          </div>
+        </details>
+      </section>
+
+      <!-- 3. Récapitulatif avant envoi -->
+      <section id="step-review" class="hidden">
+        <div class="card stack-lg">
+          <div>
+            <span class="eyebrow">Dernière étape</span>
+            <h1 style="margin-top:6px">Vérifiez avant d'envoyer</h1>
+            <p class="muted" style="margin-top:8px" id="reviewText"></p>
+          </div>
+          <div class="q-nav" id="reviewNav"></div>
+          <div class="legend">
+            <span><i class="l-answered"></i> Répondu</span>
+            <span><i></i> Sans réponse</span>
+            <span><i class="l-flagged"></i> À revoir</span>
+          </div>
+          <div class="row-between" style="padding-top:8px;border-top:1px solid var(--border)">
+            <button class="btn" id="backToQuizBtn" type="button"><i data-icon="arrow-left"></i> Revenir aux questions</button>
+            <button class="btn btn-primary btn-lg" id="submitBtn" type="button"><i data-icon="send"></i> Envoyer mes réponses</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. Fin -->
+      <section id="step-done" class="hidden">
+        <div class="card" style="text-align:center;padding:48px 28px">
+          <div class="done-icon"><i data-icon="check"></i></div>
+          <h1 id="doneTitle">Merci !</h1>
+          <p class="muted" style="margin-top:10px;max-width:460px;margin-left:auto;margin-right:auto" id="doneText">Vos réponses ont bien été transmises. Le recruteur reviendra vers vous rapidement.</p>
+          <div class="row" style="justify-content:center;margin-top:28px">
+            <a class="btn" href="index.html">Retour à l'accueil</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Erreur d'envoi -->
+      <section id="step-error" class="hidden">
+        <div class="card" style="text-align:center;padding:48px 28px">
+          <div class="done-icon" style="background:var(--danger-soft);color:var(--danger)"><i data-icon="alert"></i></div>
+          <h1>L'envoi n'a pas abouti</h1>
+          <p class="muted" style="margin-top:10px">Vos réponses sont conservées sur ce poste. Vérifiez votre connexion puis réessayez.</p>
+          <div class="row" style="justify-content:center;margin-top:28px">
+            <button class="btn btn-primary" id="retryBtn" type="button"><i data-icon="rotate"></i> Réessayer l'envoi</button>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <!-- Consignes avant de commencer -->
+  <dialog class="modal" id="prestart">
+    <div class="modal-head">
+      <div>
+        <span class="eyebrow">Avant de commencer</span>
+        <h2 style="margin-top:4px" id="prestartTitle"></h2>
+      </div>
+    </div>
+    <div class="modal-body">
+      <ul class="stack" style="margin:0;padding:0;list-style:none" id="prestartList"></ul>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" type="button" id="prestartCancel">Annuler</button>
+      <button class="btn btn-primary" type="button" id="prestartGo">Commencer le test <i data-icon="arrow-right"></i></button>
+    </div>
+  </dialog>
 </body>
 </html>

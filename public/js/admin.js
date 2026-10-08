@@ -1,818 +1,693 @@
-import { auth, db, firebaseApp, collection, doc, getDoc, getDocs, addDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy, writeBatch,
-         adminLogin, adminRegister, adminLogout, onAuthStateChanged, serverTimestamp } from "./common.js";
-import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js";
+/**
+ * Espace admin v2
+ * - Questionnaires : création, paramètres, visibilité, duplication, lien direct, réordonnancement.
+ * - Questions : éditeur en fenêtre, bonne réponse cochée (stockée à part dans answerKeys, invisible des candidats).
+ * - Résultats : tableau filtrable, indicateurs, export CSV, analyse par question, détail candidat.
+ * Tout est en temps réel (onSnapshot).
+ */
+import { auth, db, collection, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc, onSnapshot, query, orderBy,
+         serverTimestamp, writeBatch, deleteField, onAuthStateChanged, adminLogin, adminLogout, uploadImage } from "./common.js";
+import { esc, icon, initPage, toast, confirmDialog, fmtDuration, toDate, levelClass } from "./ui.js";
 
-const ui = {
-  cardAuth: document.getElementById('card-auth'),
-  cardAdmin: document.getElementById('card-admin'),
-  email: document.getElementById('email'),
-  password: document.getElementById('password'),
-  loginBtn: document.getElementById('loginBtn'),
-  registerBtn: document.getElementById('registerBtn'),
-  logoutBtn: document.getElementById('logoutBtn'),
-  whoami: document.getElementById('whoami'),
+initPage();
 
-  quizSelectAdmin: document.getElementById('quizSelectAdmin'),
-  newQuizBtn: document.getElementById('newQuizBtn'),
+const $ = (id) => document.getElementById(id);
+const LETTERS = "ABCD";
 
-  qTitle: document.getElementById('qTitle'),
-  qDesc: document.getElementById('qDesc'),
-  qTimerEnabled: document.getElementById('qTimerEnabled'),
-  qTimer: document.getElementById('qTimer'),
-  saveQuizBtn: document.getElementById('saveQuizBtn'),
+// ---------- État ----------
+let quizzes = [];              // [{ id, title, description, timerMinutes, active, orderIndex }]
+const questionsByQuiz = {};    // quizId -> [{ id, text, options, otherEnabled, imageUrl, orderIndex, legacyCorrect }]
+const keysByQuiz = {};         // quizId -> { questionId: indexBonneRéponse }
+let results = [];              // [{ id, ...data }]
+let currentQuizId = null;
+const unsubs = [];             // écoutes globales
+const questionUnsubs = {};     // quizId -> écoute des questions
+let booted = false;
 
-  quizzesSummary: document.getElementById('quizzesSummary'),
-  questionsList: document.getElementById('questionsList'),
-  qText: document.getElementById('qText'),
-  opt0: document.getElementById('opt0'),
-  opt1: document.getElementById('opt1'),
-  opt2: document.getElementById('opt2'),
-  opt3: document.getElementById('opt3'),
-  correctIndex: document.getElementById('correctIndex'),
-  addQuestionBtn: document.getElementById('addQuestionBtn'),
-  otherEnabled: document.getElementById('otherEnabled'),
-
-  resultsList: document.getElementById('resultsList'),
-  candidateDetail: document.getElementById('candidateDetail'),
+// ---------- Connexion ----------
+const AUTH_ERRORS = {
+  "auth/invalid-credential": "E-mail ou mot de passe incorrect.",
+  "auth/wrong-password": "E-mail ou mot de passe incorrect.",
+  "auth/user-not-found": "E-mail ou mot de passe incorrect.",
+  "auth/invalid-email": "Adresse e-mail invalide.",
+  "auth/too-many-requests": "Trop de tentatives. Réessayez dans quelques minutes.",
+  "auth/network-request-failed": "Problème de connexion réseau.",
 };
 
-let currentQuizId = null;
-let currentQuestions = [];
-let editingQuestionId = null; // id de la question en cours d'edition (null = mode ajout)
-let unsubQuestions = null;
-let unsubResults = null;
-
-// === Autres : verrouille la réponse D ===
-if (ui.otherEnabled && ui.opt3 && ui.correctIndex) {
-  const lockAutres = () => {
-    ui.opt3.value = 'Autres';
-    ui.opt3.disabled = true;
-    if (Number(ui.correctIndex.value) === 3) ui.correctIndex.value = 0;
-  };
-  const unlockAutres = () => {
-    ui.opt3.disabled = false;
-    if (ui.opt3.value === 'Autres') ui.opt3.value = '';
-  };
-  ui.otherEnabled.addEventListener('change', () => {
-    ui.otherEnabled.checked ? lockAutres() : unlockAutres();
-  });
+function showView(name) {
+  ["auth", "loading", "quizzes", "results"].forEach((v) => $("view-" + v).classList.toggle("hidden", v !== name));
+  const inApp = name === "quizzes" || name === "results";
+  $("tabs").classList.toggle("hidden", !inApp);
+  $("logoutBtn").classList.toggle("hidden", !inApp);
+  document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", t.dataset.view === name ? "true" : "false"));
+  if (inApp) history.replaceState(null, "", name === "results" ? "#resultats" : "#");
 }
 
-let unsubQuizzes = null;
-
-// === Results collapsible + live counter (collapsed by default) ===
-let resultsCollapsed = true;
-let resultsToggleBtn = null;
-function updateResultsToggleLabel(){
-  try{
-    const list = ui.resultsList;
-    if (!resultsToggleBtn || !list) return;
-    const n = list ? list.querySelectorAll('.item').length : 0;
-    resultsToggleBtn.textContent =
-      (resultsCollapsed ? 'Afficher les résultats ' : 'Masquer les résultats ')
-      + '(' + n + ') '
-      + (resultsCollapsed ? '▼' : '▲');
-  }catch(e){}
-}
-(function setupResultsToggle(){
-  try{
-    const list = ui.resultsList;
-    const detail = ui.candidateDetail;
-    if (!list || !detail) return;
-    // Create the button once, with light-blue gradient style
-    resultsToggleBtn = document.getElementById('toggleResults');
-    if (!resultsToggleBtn){
-      const btn = document.createElement('button');
-      btn.id = 'toggleResults';
-      btn.type = 'button';
-      btn.style.padding = '8px 12px';
-      btn.style.borderRadius = '12px';
-      btn.style.border = '1px solid #b6d4fe';
-      btn.style.background = 'linear-gradient(180deg, #eaf2ff, #d8e7ff)';
-      btn.style.color = '#0b5ed7';
-      btn.style.fontWeight = '600';
-      btn.style.boxShadow = '0 1px 0 rgba(255,255,255,.6) inset, 0 1px 2px rgba(0,0,0,.08)';
-      btn.style.cursor = 'pointer';
-      btn.style.margin = '6px 0 10px 0';
-      btn.addEventListener('mouseenter', function(){
-        btn.style.background = 'linear-gradient(180deg, #e2ecff, #cfe1ff)';
-      });
-      btn.addEventListener('mouseleave', function(){
-        btn.style.background = 'linear-gradient(180deg, #eaf2ff, #d8e7ff)';
-      });
-      btn.addEventListener('click', function(){
-        resultsCollapsed = !resultsCollapsed;
-        list.style.display = resultsCollapsed ? 'none' : '';
-        detail.style.display = resultsCollapsed ? 'none' : '';
-        updateResultsToggleLabel();
-      });
-      list.insertAdjacentElement('beforebegin', btn);
-      resultsToggleBtn = btn;
-    }
-    // Default collapsed
-    list.style.display = 'none';
-    detail.style.display = 'none';
-    // Observe changes to update (N)
-    try{
-      const mo = new MutationObserver(updateResultsToggleLabel);
-      mo.observe(list, { childList: true, subtree: false });
-    }catch(e){}
-    updateResultsToggleLabel();
-  }catch(e){ console.warn('[results toggle]', e); }
-})();
-
-// === Quizzes summary highlight (subtle blue, readable text, no default selection) ===
-(function setupSummaryHighlight(){
-  try{
-    const root = ui.quizzesSummary;
-    if (!root) return;
-    function clearActive(){
-      const items = root.querySelectorAll('.item');
-      for (let i=0;i<items.length;i++){
-        const el = items[i];
-        el.classList.remove('is-active');
-        el.style.background = '';
-        el.style.backgroundColor = '';
-        el.style.borderColor = '';
-        el.style.boxShadow = '';
-        el.style.color = '';
-        // reset typical inner text colors
-        const t = el.querySelector('.title, h3, h4, .name');
-        if (t) t.style.color = '';
-        const subs = el.querySelectorAll('.muted, .small, small, p, .subtitle');
-        subs.forEach(s => s.style.color = '');
-      }
-    }
-    function setActive(el){
-      if (!el) return;
-      el.classList.add('is-active');
-      el.style.background = '#e7f1ff';
-      el.style.backgroundColor = '#e7f1ff';
-      el.style.borderColor = '#b6cfff';
-      el.style.boxShadow = '0 0 0 1px #d9e8ff inset, 0 1px 2px rgba(0,0,0,.03)';
-      el.style.color = '#0b2244'; // ensure readable default
-      const t = el.querySelector('.title, h3, h4, .name');
-      if (t) t.style.color = '#0b2244';
-      const subs = el.querySelectorAll('.muted, .small, small, p, .subtitle');
-      subs.forEach(s => s.style.color = '#345c8a');
-    }
-    // Do not select any by default on initial render
-    // If some other code set a "currentQuizId", try to nullify it
-    try{
-      if (typeof currentQuizId !== 'undefined') currentQuizId = null;
-    }catch(e){}
-    // Clear any pre-set highlight once the list is rendered
-    try{
-      const mo = new MutationObserver(function(){
-        clearActive();
-      });
-      mo.observe(root, { childList:true, subtree:false });
-    }catch(e){}
-
-    // Click to highlight one item
-    root.addEventListener('click', function(e){
-      const item = e.target.closest('.item');
-      if (!item) return;
-      clearActive();
-      setActive(item);
-    }, true);
-  }catch(e){ console.warn('[summary highlight]', e); }
-})();
-
-
-
-function showAuth() { ui.cardAuth.style.display = 'block'; ui.cardAdmin.style.display = 'none'; }
-function showAdmin() { ui.cardAuth.style.display = 'none'; ui.cardAdmin.style.display = 'block'; }
-
-async function isAdmin(uid) {
-  try {
-    const snap = await getDoc(doc(db, 'admins', uid));
-    return snap.exists();
-  } catch (err) {
-    console.warn('isAdmin() read failed:', err);
-    return false;
-  }
-}
-
-// Auth handlers with error feedback
-ui.loginBtn.addEventListener('click', async () => {
-  try {
-    await adminLogin(ui.email.value.trim(), ui.password.value);
-  } catch (err) {
-    console.error(err);
-    alert('Connexion impossible: ' + (err && (err.code || err.message) ? (err.code || err.message) : err));
-  }
+$("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const email = $("email").value.trim(), password = $("password").value;
+  $("authError").textContent = "";
+  if (!email || !password) { $("authError").textContent = "Renseignez votre e-mail et votre mot de passe."; return; }
+  $("loginBtn").disabled = true;
+  try { await adminLogin(email, password); }
+  catch (err) { $("authError").textContent = AUTH_ERRORS[err && err.code] || "Connexion impossible (" + ((err && err.code) || err) + ")."; }
+  finally { $("loginBtn").disabled = false; }
 });
-
-ui.registerBtn.addEventListener('click', async () => {
-  try {
-    await adminRegister(ui.email.value.trim(), ui.password.value);
-    alert('Compte cree. Connectez-vous.');
-  } catch (err) {
-    console.error(err);
-    if (err && err.code === 'auth/operation-not-allowed') {
-      alert('Activez Email/Mot de passe dans Firebase > Authentication > Methodes de connexion.');
-    } else {
-      alert('Creation impossible: ' + (err && (err.code || err.message) ? (err.code || err.message) : err));
-    }
-  }
-});
-
-ui.logoutBtn.addEventListener('click', async () => {
-  try {
-    await adminLogout();
-  } catch (err) {
-    console.error(err);
-  }
-});
+$("logoutBtn").addEventListener("click", () => adminLogout());
 
 onAuthStateChanged(auth, async (user) => {
-  if (!user) { showAuth(); return; }
-  ui.whoami.textContent = user.email || user.uid;
-  const ok = await isAdmin(user.uid);
-  if (ok) { showAdmin(); bootData(); }
-  else { showAuth(); }
-});
-
-// Helpers for creating a "Nouveau QCM" with unique suffix
-async function generateNewQuizTitle() {
-  const snap = await getDocs(collection(db, 'quizzes'));
-  const base = 'Nouveau QCM';
-  const titles = snap.docs.map(d => (d.data().title || '').trim());
-  if (!titles.includes(base)) return base;
-  // find highest (n) pattern
-  let n = 1;
-  const re = /^Nouveau QCM \((\d+)\)$/;
-  const taken = new Set(titles);
-  while (taken.has(`${base} (${n})`)) n++;
-  return `${base} (${n})`;
-}
-
-async function createNewQuizAndLoad() {
-  const title = await generateNewQuizTitle();
-  const payload = {
-    title,
-    description: '',
-    timerMinutes: 0,
-    createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp(),
-  };
-  const ref = await addDoc(collection(db, 'quizzes'), payload);
-  // insert option and select it
-  const opt = document.createElement('option');
-  opt.value = ref.id;
-  opt.textContent = `${title} (0 min)`;
-  ui.quizSelectAdmin.appendChild(opt);
-  ui.quizSelectAdmin.value = ref.id;
-  await loadQuiz(ref.id);
-}
-
-// Load dropdown and summary
-async function bootData() {
-  if (unsubQuizzes) unsubQuizzes();
-  unsubQuizzes = onSnapshot(collection(db, 'quizzes'), async (snap) => {
-    // Build options without placeholder
-    const opts = [];
-    const summaryRows = [];
-    for (const d of snap.docs) {
-      const q = d.data(); q.id = d.id;
-      opts.push({ id: d.id, title: q.title || '(Sans titre)', timer: q.timerMinutes || 0, description: q.description || '', orderIndex: (typeof q.orderIndex === 'number') ? q.orderIndex : null });
-    }
-
-    // Tri par ordre personnalise (orderIndex) ; les QCM sans ordre defini passent a la fin (tries par titre)
-    opts.sort((a, b) => {
-      const ao = (typeof a.orderIndex === 'number') ? a.orderIndex : 1e9;
-      const bo = (typeof b.orderIndex === 'number') ? b.orderIndex : 1e9;
-      if (ao !== bo) return ao - bo;
-      return a.title.localeCompare(b.title);
-    });
-
-    // If none exist: create one automatically and return (next snapshot will handle UI)
-    if (opts.length === 0) {
-      await createNewQuizAndLoad();
-      return;
-    }
-
-    // Populate dropdown
-    ui.quizSelectAdmin.innerHTML = '';
-    for (const o of opts) {
-      const option = document.createElement('option');
-      option.value = o.id;
-      option.textContent = `${o.title} (${o.timer} min)`;
-      ui.quizSelectAdmin.appendChild(option);
-    }
-
-    // If nothing selected yet, select first and load
-    if (!currentQuizId) {
-      ui.quizSelectAdmin.selectedIndex = 0;
-      await loadQuiz(opts[0].id);
-    } else {
-      // Ensure dropdown reflects current selection if it still exists
-      const idx = opts.findIndex(x => x.id === currentQuizId);
-      if (idx >= 0) ui.quizSelectAdmin.selectedIndex = idx;
-    }
-
-    // Summary rows (needs counts)
-    // On lit TOUS les resultats une seule fois (au lieu d'une fois par QCM) -> beaucoup plus rapide
-    const allResults = await getDocs(collection(db, 'results'));
-    for (const o of opts) {
-      const qs = await getDocs(collection(db, 'quizzes', o.id, 'questions'));
-      const resCount = allResults.docs.filter(x => (x.data().quizId === o.id)).length;
-      const qCount = qs.size;
-      summaryRows.push(`<div class="item quizrow" data-id="${o.id}" draggable="true" style="cursor:move">
-        <div style="min-width:0">
-          <b>⠿ ${o.title}</b>
-          <div class="small">${o.description}</div>
-          <div class="small">Timer: ${o.timer > 0 ? 'Oui (' + o.timer + ' min)' : 'Non'}</div>
-          <div class="small">Questions: ${qCount} • Resultats: ${resCount}</div>
-        </div>
-        <div class="row" style="flex-wrap:nowrap; flex-shrink:0">
-          <button data-action="select" data-id="${o.id}">Editer</button>
-          <button class="btn-danger" data-action="delete" data-id="${o.id}">Supprimer</button>
-        </div>
-      </div>`);
-    }
-    ui.quizzesSummary.innerHTML = summaryRows.join('') || '<div class="small">Aucun QCM.</div>';
-    enableQuizDragAndDrop();
-  });
-
-  // Immediate load on change
-  ui.quizSelectAdmin.addEventListener('change', () => {
-    const id = ui.quizSelectAdmin.value;
-    if (id) loadQuiz(id);
-  });
-}
-
-// New quiz button: create immediately then load
-ui.newQuizBtn.addEventListener('click', async () => {
-  await createNewQuizAndLoad();
-});
-
-document.addEventListener('click', async (e) => {
-  const btn = e.target.closest('button,a');
-  if (!btn) return;
-  const action = btn.dataset.action;
-  const id = btn.dataset.id;
-
-  if (action === 'select') {
-    loadQuiz(id);
-  }
-  if (action === 'editQuestion') {
-    const q = currentQuestions.find(x => x.id === id);
-    if (q) startEditQuestion(q);
-  }
-  if (action === 'delete') {
-    if (!confirm('Supprimer ce QCM et toutes ses questions ?')) return;
-    const qs = await getDocs(collection(db, 'quizzes', id, 'questions'));
-    for (const qdoc of qs.docs) await deleteDoc(doc(db, 'quizzes', id, 'questions', qdoc.id));
-    await deleteDoc(doc(db, 'quizzes', id));
-    if (currentQuizId === id) {
-      currentQuizId = null;
-      // Selecting first will be handled by snapshot refresh
-    }
-  }
-  if (action === 'delQuestion') {
-    const pair = id.split('::');
-    const qid = pair[0]; const qdoc = pair[1];
-    await deleteDoc(doc(db, 'quizzes', qid, 'questions', qdoc));
-  }
-  if (action === 'viewCandidate') {
-    e.preventDefault();
-    const resId = id;
-    const resDoc = await getDoc(doc(db, 'results', resId));
-    renderCandidateDetail(resDoc.data());
-  }
-});
-
-// Load a quiz by id (or clear for new)
-async function loadQuiz(id) {
-  currentQuizId = id;
-  if (!id) {
-    ui.qTitle.value = '';
-    ui.qDesc.value = '';
-    ui.qTimerEnabled.checked = false;
-    ui.qTimer.value = 10;
-    ui.qTimer.disabled = true;
-    ui.questionsList.innerHTML = '<div class="small">Creez/enregistrez un nouveau QCM, puis ajoutez des questions.</div>';
-    ui.resultsList.innerHTML = '<div class="small">Selectionnez un QCM pour voir ses resultats.</div>';
-    if (unsubQuestions) unsubQuestions();
-    if (unsubResults) unsubResults();
+  if (!user || user.isAnonymous) { teardown(); $("whoami").textContent = ""; showView("auth"); return; }
+  showView("loading");
+  let ok = false;
+  try { ok = (await getDoc(doc(db, "admins", user.uid))).exists(); } catch (e) { console.warn("[isAdmin]", e); }
+  if (!ok) {
+    await adminLogout();
+    showView("auth");
+    $("authError").textContent = "Ce compte n'a pas les droits administrateur.";
     return;
   }
-  // garde le menu deroulant du haut synchronise avec le QCM en cours d'edition
-  if (ui.quizSelectAdmin) ui.quizSelectAdmin.value = id;
-  const dataSnap = await getDoc(doc(db, 'quizzes', id));
-  const data = dataSnap.data() || {};
-  ui.qTitle.value = data.title || '';
-  ui.qDesc.value = data.description || '';
-  const t = Number(data.timerMinutes || 0);
-  ui.qTimerEnabled.checked = t > 0;
-  ui.qTimer.disabled = !ui.qTimerEnabled.checked;
-  ui.qTimer.value = t > 0 ? t : 10;
-
-  function renderQuestionsList(){
-  if (!ui || !ui.questionsList) return;
-  if (!Array.isArray(currentQuestions)) return;
-  if (!currentQuestions.length){
-    ui.questionsList.innerHTML = '<div class="small">Aucune question.</div>';
-    return;
-  }
-  const rows = currentQuestions.map(q => {
-    const opts = (q.options || []).map((o, i) => i === q.correctIndex ? ('<b>' + o + '</b>') : o).join(' • ');
-    return `<div class="item qrow" data-id="${q.id}" draggable="true">
-      <div style="min-width:0"><b>${q.text}</b><div class="small">${opts}</div></div>
-      <div class="row" style="gap:6px; flex-wrap:nowrap; flex-shrink:0">
-        <button data-action="editQuestion" data-id="${q.id}">Éditer</button>
-        <button class="btn-danger" data-action="delQuestion" data-id="${currentQuizId}::${q.id}">Supprimer</button>
-      </div>
-    </div>`;
-  }).join('');
-  ui.questionsList.innerHTML = rows;
-  if (typeof enableDragAndDropAutoSave === 'function') enableDragAndDropAutoSave();
-}
-
-// Watch questions
-  const quizIdForQuestions = currentQuizId || ui.quizSelectAdmin.value;
-  if (unsubQuestions) unsubQuestions();
-  unsubQuestions = onSnapshot(collection(db, 'quizzes', quizIdForQuestions, 'questions'), (snap) => {
-    const arr = [];
-    snap.forEach(d => {
-      const q = d.data();
-      arr.push({
-        id: d.id,
-        text: q.text || q.title || '(Sans titre)',
-        options: q.options || q.answers || [],
-        correctIndex: (typeof q.correctIndex === 'number') ? q.correctIndex : 0,
-        orderIndex: (typeof q.orderIndex === 'number') ? q.orderIndex : null,
-        createdAt: q.createdAt || 0,
-      });
-    });
-    arr.sort((a,b)=>{
-      const ao=a.orderIndex, bo=b.orderIndex;
-      if (ao==null && bo!=null) return 1;
-      if (ao!=null && bo==null) return -1;
-      if (ao!=null && bo!=null && ao!==bo) return ao-bo;
-      const ac=a.createdAt?.seconds||a.createdAt||0, bc=b.createdAt?.seconds||b.createdAt||0;
-      if (ac!==bc) return ac-bc;
-      return (a.id>b.id)?1:-1;
-    });
-    currentQuestions = arr;
-    renderQuestionsList();;
-  });
-
-  // Watch results
-  const resultsQuizId = currentQuizId || ui.quizSelectAdmin.value;
-if (unsubResults) unsubResults();
-  unsubResults = onSnapshot(query(collection(db, 'results'), orderBy('createdAt', 'desc')), (snap) => {
-    const items = [];
-    snap.forEach(d => {
-      const r = d.data();
-      if (r.quizId !== resultsQuizId) return;
-      const date = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate() : new Date();
-      items.push(`<div class="item">
-        <div>
-          <b><a href="#" data-action="viewCandidate" data-id="${d.id}">${r.candidateName || '(Inconnu)'}</a></b>
-          <div class="small">${r.quizTitle || ''} • ${date.toLocaleString()}</div>
-        </div>
-        <div class="badge">Score ${r.score}/${r.total}</div>
-        ${ (r.trust && typeof r.trust.score==='number') ? (function(){ 
-            var s=r.trust.score;
-            var col = s>=90?'#16a34a':(s>=70?'#f59e0b':'#ef4444');
-            return `<div class="badge" style="border-color:${col};color:${col}">Trust ${s}/100</div>`;
-          })() : '' }
-      </div>`);
-    });
-    ui.resultsList.innerHTML = items.join('') || '<div class="small">Aucun resultat pour ce QCM.</div>';
-    // Inject delete ❌ button per result item (safe)
-    try {
-      Array.from(ui.resultsList.querySelectorAll('.item')).forEach((el) => {
-        if (el.querySelector('.delete-result')) return;
-
-        const link = el.querySelector('[data-action="viewCandidate"]');
-        const resId = link ? link.getAttribute('data-id') : null;
-        if (!resId) return;
-
-        const btn = document.createElement('button');
-        btn.className = 'delete-result';
-        btn.type = 'button';
-        btn.textContent = '✖';
-        btn.title = 'Supprimer ce résultat';
-
-        btn.style.marginLeft = '8px';
-        btn.style.border = 'none';
-        btn.style.background = 'transparent';
-        btn.style.color = '#dc3545';
-        btn.style.cursor = 'pointer';
-        btn.style.fontSize = '16px';
-        btn.style.fontWeight = '700';
-
-        btn.addEventListener('click', async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-
-          const name = el.querySelector('b')?.textContent || 'ce candidat';
-          const ok = confirm(`Supprimer définitivement le résultat de ${name} ?\n\nCette action est irréversible.`);
-          if (!ok) return;
-
-          try {
-            await deleteDoc(doc(db, 'results', resId));
-          } catch (err) {
-            console.error('[admin] delete result error', err);
-            alert('Suppression impossible.');
-          }
-        });
-
-        const badge = el.querySelector('.badge');
-        if (badge && badge.insertAdjacentElement) {
-          badge.insertAdjacentElement('afterend', btn);
-        } else {
-          el.appendChild(btn);
-        }
-      });
-    } catch(e) { console.warn('[delete result inject]', e); }
-
-  });
-}
-
-// Timer checkbox behavior
-ui.qTimerEnabled.addEventListener('change', () => {
-  ui.qTimer.disabled = !ui.qTimerEnabled.checked;
+  $("whoami").textContent = user.email || "";
+  boot();
+  showView(location.hash === "#resultats" ? "results" : "quizzes");
 });
 
-// Save or create quiz
-ui.saveQuizBtn.addEventListener('click', async () => {
-  const enabled = ui.qTimerEnabled.checked;
-  const minutes = Number(ui.qTimer.value || 0);
-  const payload = {
-    title: ui.qTitle.value.trim(),
-    description: ui.qDesc.value.trim(),
-    timerMinutes: enabled ? Math.max(1, minutes) : 0,
-    updatedAt: serverTimestamp(),
-  };
-  if (!payload.title) { alert('Titre requis'); return; }
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
+  showView(t.dataset.view);
+  if (t.dataset.view === "results") renderResults();
+}));
 
-  if (currentQuizId) {
-    await updateDoc(doc(db, 'quizzes', currentQuizId), payload);
-  } else {
-    payload.createdAt = serverTimestamp();
-    const ref = await addDoc(collection(db, 'quizzes'), payload);
-    currentQuizId = ref.id;
-    const opt = document.createElement('option');
-    opt.value = ref.id;
-    opt.textContent = `${payload.title} (${payload.timerMinutes || 0} min)`;
-    ui.quizSelectAdmin.appendChild(opt);
-    ui.quizSelectAdmin.value = ref.id;
-    await loadQuiz(ref.id);
-  }
-  alert('QCM enregistre.');
-});
+function teardown() {
+  unsubs.splice(0).forEach((u) => u());
+  Object.keys(questionUnsubs).forEach((k) => { questionUnsubs[k](); delete questionUnsubs[k]; });
+  booted = false;
+}
 
-// Add question
-ui.addQuestionBtn.addEventListener('click', async () => {
-  if (!currentQuizId) { alert('Creez/enregistrez d\'abord un QCM.'); return; }
+// ---------- Abonnements temps réel ----------
+function boot() {
+  if (booted) return;
+  booted = true;
 
-  const text = ui.qText.value.trim();
-  const options = [ui.opt0.value, ui.opt1.value, ui.opt2.value, ui.opt3.value].map(s => s.trim());
-  const correctIndex = Number(ui.correctIndex.value);
-  const otherEnabled = ui.otherEnabled && ui.otherEnabled.checked;
+  unsubs.push(onSnapshot(collection(db, "quizzes"), (snap) => {
+    quizzes = snap.docs.map((d) => {
+      const q = d.data() || {};
+      return { id: d.id, title: q.title || "(Sans titre)", description: q.description || "", timerMinutes: Number(q.timerMinutes || 0),
+               active: q.active !== false, orderIndex: typeof q.orderIndex === "number" ? q.orderIndex : 1e9 };
+    });
+    quizzes.sort((a, b) => a.orderIndex - b.orderIndex || a.title.localeCompare(b.title));
+    // une écoute de questions par QCM (compteurs, analyse, détection des anciennes questions)
+    quizzes.forEach((q) => { if (!questionUnsubs[q.id]) questionUnsubs[q.id] = watchQuestions(q.id); });
+    Object.keys(questionUnsubs).forEach((id) => {
+      if (!quizzes.some((q) => q.id === id)) { questionUnsubs[id](); delete questionUnsubs[id]; delete questionsByQuiz[id]; }
+    });
+    if (!currentQuizId || !quizzes.some((q) => q.id === currentQuizId)) selectQuiz(quizzes[0] ? quizzes[0].id : null);
+    renderSidebar();
+    renderResultsFilter();
+    renderResults();
+  }, onListenError));
 
-  if (!text || options.some(o => !o) || !(correctIndex >= 0 && correctIndex < options.length)) {
-    alert('Remplissez la question, les 4 reponses et l\'index correct (0-3).');
-    return;
-  }
+  unsubs.push(onSnapshot(collection(db, "answerKeys"), (snap) => {
+    snap.docs.forEach((d) => { keysByQuiz[d.id] = (d.data() || {}).keys || {}; });
+    Object.keys(keysByQuiz).forEach((id) => { if (!snap.docs.some((d) => d.id === id)) delete keysByQuiz[id]; });
+    renderQuestions();
+    renderResults();
+  }, onListenError));
 
-  // === MODE EDITION : mettre a jour la question existante ===
-  if (editingQuestionId) {
-    try {
-      const qDocRef = doc(db, 'quizzes', currentQuizId, 'questions', editingQuestionId);
-      // on ne touche qu'au texte, aux reponses et a l'index : otherEnabled/imageUrl sont preserves
-      await updateDoc(qDocRef, { text, options, correctIndex });
-      const imgInputE = document.getElementById('qImage');
-      const fileE = imgInputE && imgInputE.files && imgInputE.files[0];
-      if (fileE) {
-        try {
-          const storage = getStorage(firebaseApp);
-          const sRef = storageRef(storage, `question-images/${currentQuizId}/${editingQuestionId}`);
-          await uploadBytes(sRef, fileE);
-          const imageUrl = await getDownloadURL(sRef);
-          await updateDoc(qDocRef, { imageUrl });
-        } catch (e) { console.error('[IMAGE UPDATE FAILED]', e); }
-      }
-      cancelEditMode();
-      alert('Question mise a jour.');
-    } catch (e) {
-      console.error('[update question]', e);
-      alert('Mise a jour impossible : ' + (e && (e.code || e.message) ? (e.code || e.message) : e));
-    }
-    return;
-  }
+  unsubs.push(onSnapshot(query(collection(db, "results"), orderBy("createdAt", "desc")), (snap) => {
+    results = snap.docs.map((d) => Object.assign({ id: d.id }, d.data()));
+    renderSidebar();
+    renderResults();
+  }, onListenError));
+}
 
-  const imgInput = document.getElementById('qImage');
-  const file = imgInput && imgInput.files && imgInput.files[0];
+function onListenError(e) {
+  console.error("[snapshot]", e);
+  toast("Lecture des données impossible : " + (e.code || e.message), "error");
+}
 
-  const qRef = await addDoc(collection(db, 'quizzes', currentQuizId, 'questions'), {
-    text,
-    options,
-    correctIndex,
-    otherEnabled,
-    createdAt: serverTimestamp()
+function watchQuestions(quizId) {
+  return onSnapshot(collection(db, "quizzes", quizId, "questions"), (snap) => {
+    const arr = snap.docs.map((d) => {
+      const q = d.data() || {};
+      const created = q.createdAt && typeof q.createdAt.seconds === "number" ? q.createdAt.seconds : (typeof q.createdAt === "number" ? q.createdAt / 1000 : 0);
+      return { id: d.id, text: q.text || q.title || "(Sans intitulé)", options: q.options || q.answers || [], otherEnabled: !!q.otherEnabled,
+               imageUrl: q.imageUrl || null, orderIndex: typeof q.orderIndex === "number" ? q.orderIndex : 1e9, created,
+               legacyCorrect: typeof q.correctIndex === "number" ? q.correctIndex : null };
+    });
+    arr.sort((a, b) => a.orderIndex - b.orderIndex || a.created - b.created || (a.id > b.id ? 1 : -1));
+    questionsByQuiz[quizId] = arr;
+    renderSidebar();
+    renderBanner();
+    if (quizId === currentQuizId) renderQuestions();
+    renderResults();
+  }, onListenError);
+}
+
+/** Bonne réponse d'une question : clé sécurisée en priorité, sinon ancien champ public (avant migration). */
+function correctOf(quizId, questionId) {
+  const k = keysByQuiz[quizId] && keysByQuiz[quizId][questionId];
+  if (typeof k === "number") return k;
+  const q = (questionsByQuiz[quizId] || []).find((x) => x.id === questionId);
+  return q && typeof q.legacyCorrect === "number" ? q.legacyCorrect : null;
+}
+
+// ---------- Bandeau de sécurité (migration des anciennes questions) ----------
+function legacyQuestions() {
+  const out = [];
+  Object.keys(questionsByQuiz).forEach((qid) => questionsByQuiz[qid].forEach((q) => { if (q.legacyCorrect !== null) out.push({ quizId: qid, q }); }));
+  return out;
+}
+function renderBanner() {
+  const legacy = legacyQuestions();
+  $("securityBanner").classList.toggle("hidden", !legacy.length);
+  $("securityText").textContent = legacy.length + " question" + (legacy.length > 1 ? "s stockent" : " stocke") +
+    " encore la bonne réponse dans un champ lisible par n'importe quel candidat. Un clic suffit pour la déplacer dans un espace réservé aux administrateurs.";
+}
+$("migrateBtn").addEventListener("click", async () => {
+  const legacy = legacyQuestions();
+  if (!legacy.length) return;
+  const ok = await confirmDialog({
+    title: "Sécuriser les bonnes réponses ?",
+    message: "Les bonnes réponses seront retirées des questions et rangées dans un espace réservé aux administrateurs. " +
+             "Les candidats ne pourront plus les voir. Le calcul des scores n'est pas modifié.",
+    confirmText: "Sécuriser",
   });
-
-  if (file) {
-    try {
-      const storage = getStorage(firebaseApp);
-      const sRef = storageRef(storage, `question-images/${currentQuizId}/${qRef.id}`);
-      await uploadBytes(sRef, file);
-      const imageUrl = await getDownloadURL(sRef);
-      await updateDoc(qRef, { imageUrl });
-    } catch (e) {
-      console.error('[IMAGE UPLOAD FAILED]', e);
-      // Question is kept without imageUrl to avoid breaking flow
-    }
-  }
-
-  ui.qText.value = '';
-  ui.opt0.value = '';
-  ui.opt1.value = '';
-  ui.opt2.value = '';
-  ui.opt3.value = '';
-  ui.correctIndex.value = 0;
-  if (ui.otherEnabled) ui.otherEnabled.checked = false;
-  ui.opt3.disabled = false;
-  if (imgInput) imgInput.value = '';
-});
-
-function renderCandidateDetail(r){
-  const modal = document.getElementById('modalResults');
-  const body = document.getElementById('modalBody');
-  const closeBtn = document.getElementById('modalClose');
-  if (!modal || !body){ return; }
-  if (!r){ body.innerHTML = ''; modal.classList.add('hidden'); return; }
-
-  const answers = r.answersDetails && Array.isArray(r.answersDetails) ? r.answersDetails : [];
-  const header = `<div class="row" style="justify-content:space-between;align-items:center">
-      <h2 style="margin:0">${r.candidateName || '(Inconnu)'}</h2>
-      <div class="small">${r.quizTitle || ''} &nbsp; • &nbsp; Score ${r.score||0}/${r.total||0}
-      ${ (r.trust && typeof r.trust.score==='number') ? (function(){ 
-          var s=r.trust.score;
-          var col = s>=90?'#16a34a':(s>=70?'#f59e0b':'#ef4444');
-          return `<span class="badge" style="margin-left:8px;border-color:${col};color:${col}">Trust ${s}/100</span>`;
-        })() : '' }
-    </div>
-    </div>`;
-  const table = `<table class="table" style="width:100%;margin-top:12px">
-    <thead><tr><th>#</th><th>Question</th><th>Réponse</th><th>Bonne</th><th>Focus perdus</th><th>Hors fenêtre (s)</th><th></th></tr></thead>
-    <tbody>${
-      answers.map((a,i)=>{
-        const opts = a.options||[];
-        let chosen;
-        if (a.chosenIndex === 'other') {
-          chosen = '<i>Autres :</i> ' + (a.otherText ? a.otherText : '(vide)');
-        } else if (typeof a.chosenIndex === 'number') {
-          chosen = opts[a.chosenIndex] ?? '(?)';
-        } else {
-          chosen = '(?)';
-        }
-        const good   = typeof a.correctIndex==='number' ? opts[a.correctIndex] : '(?)';
-        const mark = (typeof a.chosenIndex==='number' && typeof a.correctIndex==='number' && a.chosenIndex===a.correctIndex) ? '✅' : '❌';
-        return `<tr>
-          <td>${i+1}</td>
-          <td>${a.questionText || '(?)'}</td>
-          <td>${chosen}</td>
-          <td>${good}</td>
-          <td>${(a.focusLosses||0)}</td>
-          <td>${Math.round(((a.offWindowMs||0)/1000))}</td>
-          <td>${mark}</td>
-        </tr>`;
-      }).join('')
-    }</tbody></table>`;
-  body.innerHTML = header + table;
-  modal.classList.remove('hidden');
-  if (closeBtn && !closeBtn._wired){
-    closeBtn.addEventListener('click', ()=> modal.classList.add('hidden'));
-    document.querySelector('.modal-backdrop')?.addEventListener('click', ()=> modal.classList.add('hidden'));
-    closeBtn._wired = true;
-  }
-}
-
-// === Edition d'une question : remplit le formulaire et bascule en mode "mise a jour" ===
-function startEditQuestion(q){
-  editingQuestionId = q.id;
-  ui.qText.value = q.text || '';
-  const opts = q.options || [];
-  ui.opt0.value = opts[0] || '';
-  ui.opt1.value = opts[1] || '';
-  ui.opt2.value = opts[2] || '';
-  ui.opt3.value = opts[3] || '';
-  ui.opt3.disabled = false;
-  if (ui.otherEnabled) ui.otherEnabled.checked = false;
-  ui.correctIndex.value = (typeof q.correctIndex === 'number') ? q.correctIndex : 0;
-  ui.addQuestionBtn.textContent = 'Mettre à jour la question';
-  const title = document.getElementById('qFormTitle'); if (title) title.textContent = '✏️ Modifier la question';
-  const cancel = document.getElementById('cancelEditBtn'); if (cancel) cancel.style.display = '';
-  if (ui.qText.scrollIntoView) ui.qText.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  ui.qText.focus();
-}
-
-// === Annule l'edition et remet le formulaire en mode "ajout" ===
-function cancelEditMode(){
-  editingQuestionId = null;
-  ui.qText.value = '';
-  ui.opt0.value = ''; ui.opt1.value = ''; ui.opt2.value = ''; ui.opt3.value = '';
-  ui.opt3.disabled = false;
-  if (ui.otherEnabled) ui.otherEnabled.checked = false;
-  ui.correctIndex.value = 0;
-  const imgInput = document.getElementById('qImage'); if (imgInput) imgInput.value = '';
-  ui.addQuestionBtn.textContent = 'Ajouter';
-  const title = document.getElementById('qFormTitle'); if (title) title.textContent = 'Ajouter une question';
-  const cancel = document.getElementById('cancelEditBtn'); if (cancel) cancel.style.display = 'none';
-}
-
-const cancelEditBtn = document.getElementById('cancelEditBtn');
-if (cancelEditBtn) cancelEditBtn.addEventListener('click', cancelEditMode);
-
-// === Reorganisation des QCM par glisser-deposer dans la liste synthese ===
-function enableQuizDragAndDrop(){
-  const list = ui.quizzesSummary;
-  if (!list) return;
-  const rows = Array.from(list.querySelectorAll('.quizrow'));
-  let dragSrc = null;
-
-  const saveOrder = async () => {
-    const ids = Array.from(list.querySelectorAll('.quizrow')).map(el => el.getAttribute('data-id'));
-    try {
+  if (!ok) return;
+  $("migrateBtn").disabled = true;
+  try {
+    for (let i = 0; i < legacy.length; i += 200) {           // lots de 200 (limite Firestore : 500 opérations)
       const batch = writeBatch(db);
-      ids.forEach((qid, k) => batch.update(doc(db, 'quizzes', qid), { orderIndex: k }));
-      await batch.commit(); // une seule ecriture -> l'affichage se rafraichit via onSnapshot
-    } catch (e) {
-      console.error('[reorder quizzes]', e);
-      alert('Reorganisation impossible : ' + (e && (e.code || e.message) ? (e.code || e.message) : e));
+      const keys = {};
+      legacy.slice(i, i + 200).forEach(({ quizId, q }) => {
+        (keys[quizId] = keys[quizId] || {})[q.id] = q.legacyCorrect;
+        batch.update(doc(db, "quizzes", quizId, "questions", q.id), { correctIndex: deleteField() });
+      });
+      Object.keys(keys).forEach((quizId) => batch.set(doc(db, "answerKeys", quizId), { keys: keys[quizId] }, { merge: true }));
+      await batch.commit();
     }
-  };
+    toast("Bonnes réponses sécurisées.", "success");
+  } catch (e) {
+    console.error("[migrate]", e);
+    toast("Migration impossible : " + (e.code || e.message) + ". Les règles Firestore v2 sont-elles déployées ?", "error");
+  } finally { $("migrateBtn").disabled = false; }
+});
 
-  rows.forEach(row => {
-    row.addEventListener('dragstart', (e) => {
-      // ne pas demarrer de glissement si on clique sur un bouton/lien (sinon le clic est avale)
-      if (e.target.closest('button, a, input, select, textarea')) { e.preventDefault(); return; }
-      dragSrc = row;
-      row.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
+// ---------- Barre latérale : liste des QCM ----------
+function resultCount(quizId) { return results.filter((r) => r.quizId === quizId).length; }
+function renderSidebar() {
+  const nav = $("quizNav");
+  if (!quizzes.length) { nav.innerHTML = '<div class="empty">' + icon("clipboard") + "<div>Aucun questionnaire.</div></div>"; return; }
+  nav.innerHTML = quizzes.map((q) => {
+    const nq = (questionsByQuiz[q.id] || []).length, nr = resultCount(q.id);
+    return '<div role="button" tabindex="0" class="quiz-nav-item' + (q.id === currentQuizId ? " active" : "") + '" data-id="' + esc(q.id) + '" draggable="true">' +
+      '<span class="status-dot' + (q.active ? "" : " off") + '" title="' + (q.active ? "Visible par les candidats" : "Masqué aux candidats") + '"></span>' +
+      '<span class="grow"><span class="qn-title" style="display:block">' + esc(q.title) + "</span>" +
+      '<span class="qn-meta">' + nq + " question" + (nq > 1 ? "s" : "") + " · " + nr + " résultat" + (nr > 1 ? "s" : "") + (q.timerMinutes ? " · " + q.timerMinutes + " min" : "") + "</span></span>" +
+      "</div>";
+  }).join("");
+  enableDragSort(nav, ".quiz-nav-item", async (ids) => {
+    const batch = writeBatch(db);
+    ids.forEach((id, k) => batch.update(doc(db, "quizzes", id), { orderIndex: k }));
+    await batch.commit();
+  });
+}
+$("quizNav").addEventListener("click", (e) => {
+  const item = e.target.closest(".quiz-nav-item");
+  if (item) selectQuiz(item.dataset.id);
+});
+$("quizNav").addEventListener("keydown", (e) => {
+  const item = e.target.closest(".quiz-nav-item");
+  if (item && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); selectQuiz(item.dataset.id); }
+});
+
+// ---------- Éditeur de QCM ----------
+function currentQuiz() { return quizzes.find((q) => q.id === currentQuizId) || null; }
+
+function selectQuiz(id) {
+  currentQuizId = id;
+  $("editor").classList.toggle("hidden", !id);
+  const q = currentQuiz();
+  if (q) {
+    $("qTitle").value = q.title;
+    $("qDesc").value = q.description;
+    $("qTimerEnabled").checked = q.timerMinutes > 0;
+    $("qTimer").value = q.timerMinutes > 0 ? q.timerMinutes : 15;
+    $("qTimer").disabled = !(q.timerMinutes > 0);
+    $("qActive").checked = q.active;
+    $("editorTitle").textContent = q.title;
+    $("editorMeta").textContent = q.active ? "Visible par les candidats" : "Masqué aux candidats";
+  }
+  renderSidebar();
+  renderQuestions();
+}
+
+$("qTimerEnabled").addEventListener("change", () => { $("qTimer").disabled = !$("qTimerEnabled").checked; });
+
+$("quizForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  if (!currentQuizId) return;
+  const title = $("qTitle").value.trim();
+  if (!title) { toast("Le titre est obligatoire.", "error"); $("qTitle").focus(); return; }
+  const minutes = Math.max(1, Math.min(600, Number($("qTimer").value) || 0));
+  try {
+    await updateDoc(doc(db, "quizzes", currentQuizId), {
+      title, description: $("qDesc").value.trim(),
+      timerMinutes: $("qTimerEnabled").checked ? minutes : 0,
+      active: $("qActive").checked, updatedAt: serverTimestamp(),
     });
-    row.addEventListener('dragend', async () => {
-      row.classList.remove('dragging');
-      if (!dragSrc) return; // glissement annule (clic sur un bouton)
-      dragSrc = null;
-      await saveOrder();
+    $("editorTitle").textContent = title;
+    $("editorMeta").textContent = $("qActive").checked ? "Visible par les candidats" : "Masqué aux candidats";
+    toast("Questionnaire enregistré.", "success");
+  } catch (err) { console.error(err); toast("Enregistrement impossible : " + (err.code || err.message), "error"); }
+});
+
+$("newQuizBtn").addEventListener("click", async () => {
+  const taken = new Set(quizzes.map((q) => q.title));
+  let title = "Nouveau questionnaire", n = 2;
+  while (taken.has(title)) title = "Nouveau questionnaire (" + n++ + ")";
+  try {
+    const ref = await addDoc(collection(db, "quizzes"), {
+      title, description: "", timerMinutes: 0, active: false, orderIndex: quizzes.length,
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     });
-    row.addEventListener('dragover', (e) => {
+    currentQuizId = ref.id;
+    // la sélection effective se fait quand le snapshot arrive
+    setTimeout(() => { selectQuiz(ref.id); $("qTitle").select(); }, 50);
+    toast("Questionnaire créé (masqué aux candidats tant que vous ne l'activez pas).", "success");
+  } catch (err) { toast("Création impossible : " + (err.code || err.message), "error"); }
+});
+
+$("duplicateBtn").addEventListener("click", async () => {
+  const src = currentQuiz();
+  if (!src) return;
+  try {
+    const ref = await addDoc(collection(db, "quizzes"), {
+      title: src.title + " (copie)", description: src.description, timerMinutes: src.timerMinutes, active: false,
+      orderIndex: quizzes.length, createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    });
+    const batch = writeBatch(db);
+    const keys = {};
+    (questionsByQuiz[src.id] || []).forEach((q, i) => {
+      const nref = doc(collection(db, "quizzes", ref.id, "questions"));
+      const data = { text: q.text, options: q.options, otherEnabled: q.otherEnabled, orderIndex: i, createdAt: serverTimestamp() };
+      if (q.imageUrl) data.imageUrl = q.imageUrl;
+      batch.set(nref, data);
+      const k = correctOf(src.id, q.id);
+      if (typeof k === "number") keys[nref.id] = k;
+    });
+    batch.set(doc(db, "answerKeys", ref.id), { keys });
+    await batch.commit();
+    setTimeout(() => selectQuiz(ref.id), 50);
+    toast("Questionnaire dupliqué.", "success");
+  } catch (err) { console.error(err); toast("Duplication impossible : " + (err.code || err.message), "error"); }
+});
+
+$("deleteQuizBtn").addEventListener("click", async () => {
+  const q = currentQuiz();
+  if (!q) return;
+  const nr = resultCount(q.id);
+  const ok = await confirmDialog({
+    title: "Supprimer ce questionnaire ?",
+    message: "« " + esc(q.title) + " » et ses " + (questionsByQuiz[q.id] || []).length + " questions seront supprimés définitivement." +
+             (nr ? "<br><br>Les " + nr + " résultats déjà enregistrés sont conservés." : ""),
+    confirmText: "Supprimer", danger: true,
+  });
+  if (!ok) return;
+  try {
+    const batch = writeBatch(db);
+    (questionsByQuiz[q.id] || []).forEach((x) => batch.delete(doc(db, "quizzes", q.id, "questions", x.id)));
+    batch.delete(doc(db, "answerKeys", q.id));
+    batch.delete(doc(db, "quizzes", q.id));
+    await batch.commit();
+    currentQuizId = null;
+    toast("Questionnaire supprimé.", "success");
+  } catch (err) { toast("Suppression impossible : " + (err.code || err.message), "error"); }
+});
+
+$("copyLinkBtn").addEventListener("click", async () => {
+  if (!currentQuizId) return;
+  const url = new URL("candidate.html?quiz=" + encodeURIComponent(currentQuizId), location.href).href;
+  try { await navigator.clipboard.writeText(url); toast("Lien copié : à envoyer au candidat.", "success"); }
+  catch (e) { await confirmDialog({ title: "Lien candidat", message: '<input class="input" readonly value="' + esc(url) + '" onclick="this.select()">', confirmText: "Fermer", cancelText: null }); }
+});
+
+// ---------- Questions ----------
+function renderQuestions() {
+  const list = $("questionsList");
+  const qs = questionsByQuiz[currentQuizId] || [];
+  $("qCount").textContent = qs.length;
+  if (!currentQuizId) { list.innerHTML = ""; return; }
+  if (!qs.length) {
+    list.innerHTML = '<div class="empty">' + icon("list") + "<div>Aucune question pour l'instant.</div>" +
+      '<div class="small" style="margin-top:4px">Cliquez sur « Ajouter une question » pour commencer.</div></div>';
+    return;
+  }
+  list.innerHTML = qs.map((q, i) => {
+    const k = correctOf(currentQuizId, q.id);
+    const chips = q.options.map((o, j) => {
+      const other = q.otherEnabled && j === q.options.length - 1;
+      return '<span class="chip' + (j === k ? " correct" : "") + '">' + LETTERS[j] + ". " + esc(other ? "Autre réponse (libre)" : o) + "</span>";
+    }).join("") + (typeof k !== "number" ? '<span class="chip missing">Bonne réponse non définie</span>' : "");
+    return '<div class="list-row q-row" data-id="' + esc(q.id) + '" draggable="true">' +
+      '<span class="drag-handle" title="Glisser pour réordonner">' + icon("grip") + "</span>" +
+      '<span class="q-row-num">' + (i + 1) + "</span>" +
+      '<div class="grow"><div class="title">' + esc(q.text) + (q.imageUrl ? ' <span class="badge" style="margin-left:4px">' + icon("image", "icon-sm") + " image</span>" : "") +
+      (q.legacyCorrect !== null ? ' <span class="badge badge-warn" title="Bonne réponse encore visible par les candidats">' + icon("alert", "icon-sm") + " non sécurisée</span>" : "") +
+      '</div><div class="chips">' + chips + "</div></div>" +
+      '<div class="actions">' +
+        '<button class="btn btn-ghost btn-icon btn-sm" type="button" data-edit="' + esc(q.id) + '" title="Modifier" aria-label="Modifier">' + icon("pencil", "icon-sm") + "</button>" +
+        '<button class="btn btn-ghost btn-icon btn-sm btn-danger" type="button" data-del="' + esc(q.id) + '" title="Supprimer" aria-label="Supprimer">' + icon("trash", "icon-sm") + "</button>" +
+      "</div></div>";
+  }).join("");
+  enableDragSort(list, ".q-row", async (ids) => {
+    const batch = writeBatch(db);
+    ids.forEach((id, k) => batch.update(doc(db, "quizzes", currentQuizId, "questions", id), { orderIndex: k }));
+    await batch.commit();
+  });
+}
+
+$("questionsList").addEventListener("click", async (e) => {
+  const ed = e.target.closest("[data-edit]"), del = e.target.closest("[data-del]");
+  const qs = questionsByQuiz[currentQuizId] || [];
+  if (ed) openQuestionDialog(qs.find((q) => q.id === ed.dataset.edit));
+  if (del) {
+    const q = qs.find((x) => x.id === del.dataset.del);
+    if (!q) return;
+    const ok = await confirmDialog({ title: "Supprimer cette question ?", message: "« " + esc(q.text) + " »", confirmText: "Supprimer", danger: true });
+    if (!ok) return;
+    try {
+      await deleteDoc(doc(db, "quizzes", currentQuizId, "questions", q.id));
+      if (keysByQuiz[currentQuizId] && q.id in keysByQuiz[currentQuizId]) {
+        await updateDoc(doc(db, "answerKeys", currentQuizId), { ["keys." + q.id]: deleteField() });
+      }
+      toast("Question supprimée.", "success");
+    } catch (err) { toast("Suppression impossible : " + (err.code || err.message), "error"); }
+  }
+});
+
+// Fenêtre d'édition d'une question
+let editing = null;       // question en cours d'édition (null = ajout)
+let removeImage = false;
+const qDialog = $("questionDialog");
+
+function renderAnswerInputs(options, correct) {
+  $("answerInputs").innerHTML = [0, 1, 2, 3].map((i) =>
+    '<div class="answer-edit">' +
+      '<input type="radio" name="correct" value="' + i + '"' + (i === correct ? " checked" : "") + ' aria-label="Bonne réponse : ' + LETTERS[i] + '">' +
+      '<span class="key">' + LETTERS[i] + "</span>" +
+      '<input class="input" id="opt' + i + '" maxlength="500" placeholder="Réponse ' + LETTERS[i] + '" value="' + esc(options[i] || "") + '">' +
+    "</div>").join("");
+}
+function applyOtherToggle() {
+  const on = $("otherEnabled").checked;
+  const input = $("opt3"), radio = $("answerInputs").querySelector('input[value="3"]');
+  input.disabled = on;
+  radio.disabled = on;
+  if (on) { input.value = "Autres"; if (radio.checked) $("answerInputs").querySelector('input[value="0"]').checked = true; }
+  else if (input.value === "Autres") input.value = "";
+}
+$("otherEnabled").addEventListener("change", applyOtherToggle);
+
+function openQuestionDialog(q) {
+  if (!currentQuizId) return;
+  editing = q || null;
+  removeImage = false;
+  $("questionDialogTitle").textContent = q ? "Modifier la question" : "Nouvelle question";
+  $("qText").value = q ? q.text : "";
+  const correct = q ? correctOf(currentQuizId, q.id) : null;
+  renderAnswerInputs(q ? q.options : [], typeof correct === "number" ? correct : -1);
+  $("otherEnabled").checked = !!(q && q.otherEnabled);
+  applyOtherToggle();
+  $("qImage").value = "";
+  setPreview(q && q.imageUrl);
+  $("questionError").textContent = "";
+  qDialog.showModal();
+  $("qText").focus();
+}
+function setPreview(url) {
+  $("imgPreview").classList.toggle("hidden", !url);
+  if (url) $("imgPreviewImg").src = url;
+}
+$("addQuestionBtn").addEventListener("click", () => openQuestionDialog(null));
+$("qImage").addEventListener("change", () => {
+  const f = $("qImage").files[0];
+  if (f) { removeImage = false; setPreview(URL.createObjectURL(f)); }
+});
+$("imgRemoveBtn").addEventListener("click", () => { $("qImage").value = ""; removeImage = true; setPreview(null); });
+
+$("questionForm").setAttribute("novalidate", "");
+$("questionForm").addEventListener("submit", async (e) => {
+  if (!e.submitter || e.submitter.value !== "save") return;   // « Annuler » ferme simplement la fenêtre
+  e.preventDefault();
+  const text = $("qText").value.trim();
+  const options = [0, 1, 2, 3].map((i) => $("opt" + i).value.trim());
+  const picked = $("answerInputs").querySelector('input[name="correct"]:checked');
+  const otherEnabled = $("otherEnabled").checked;
+  const err = !text ? "Saisissez l'intitulé de la question."
+            : options.some((o) => !o) ? "Renseignez les 4 réponses."
+            : !picked ? "Cochez la bonne réponse." : "";
+  if (err) { $("questionError").textContent = err; return; }
+  const correct = Number(picked.value);
+  const quizId = currentQuizId;
+  $("saveQuestionBtn").disabled = true;
+  try {
+    let qid;
+    if (editing) {
+      qid = editing.id;
+      const data = { text, options, otherEnabled, correctIndex: deleteField() };   // supprime aussi l'ancien champ public
+      if (removeImage) data.imageUrl = deleteField();
+      await updateDoc(doc(db, "quizzes", quizId, "questions", qid), data);
+    } else {
+      const qs = questionsByQuiz[quizId] || [];
+      const ref = await addDoc(collection(db, "quizzes", quizId, "questions"), {
+        text, options, otherEnabled, orderIndex: qs.length ? Math.max(...qs.map((x) => (x.orderIndex < 1e9 ? x.orderIndex : 0))) + 1 : 0,
+        createdAt: serverTimestamp(),
+      });
+      qid = ref.id;
+    }
+    await setDoc(doc(db, "answerKeys", quizId), { keys: { [qid]: correct } }, { merge: true });
+    const file = $("qImage").files[0];
+    if (file) {
+      try {
+        const url = await uploadImage("question-images/" + quizId + "/" + qid, file);
+        await updateDoc(doc(db, "quizzes", quizId, "questions", qid), { imageUrl: url });
+      } catch (e2) { console.error("[image]", e2); toast("Question enregistrée, mais l'envoi de l'image a échoué.", "error"); }
+    }
+    qDialog.close();
+    toast(editing ? "Question mise à jour." : "Question ajoutée.", "success");
+  } catch (e3) {
+    console.error("[saveQuestion]", e3);
+    $("questionError").textContent = "Enregistrement impossible : " + (e3.code || e3.message);
+  } finally { $("saveQuestionBtn").disabled = false; }
+});
+
+// ---------- Glisser-déposer générique ----------
+function enableDragSort(container, selector, onSave) {
+  let src = null;
+  container.querySelectorAll(selector).forEach((row) => {
+    row.addEventListener("dragstart", (e) => {
+      if (e.target.closest && e.target.closest("button, input, a")) { e.preventDefault(); return; }
+      src = row; row.classList.add("dragging"); e.dataTransfer.effectAllowed = "move";
+    });
+    row.addEventListener("dragend", async () => {
+      row.classList.remove("dragging");
+      if (!src) return;
+      src = null;
+      const ids = Array.from(container.querySelectorAll(selector)).map((el) => el.dataset.id);
+      try { await onSave(ids); } catch (e) { toast("Réorganisation impossible : " + (e.code || e.message), "error"); }
+    });
+    row.addEventListener("dragover", (e) => {
       e.preventDefault();
-      if (row === dragSrc) return;
-      const rect = row.getBoundingClientRect();
-      const before = (e.clientY - rect.top) < (rect.height / 2);
-      list.insertBefore(dragSrc, before ? row : row.nextSibling);
+      if (!src || row === src) return;
+      const r = row.getBoundingClientRect();
+      container.insertBefore(src, e.clientY - r.top < r.height / 2 ? row : row.nextSibling);
     });
   });
 }
 
-// Boot
-bootData();
-
-function enableDragAndDropAutoSave(){
-  const list = ui.questionsList;
-  const rows = Array.from(list.querySelectorAll('.qrow'));
-  let dragSrc = null;
-
-  const saveOrder = async () => {
-    if (!currentQuizId) return;
-    const order = Array.from(list.querySelectorAll('.qrow')).map((el, idx) => ({ id: el.getAttribute('data-id'), idx }));
-    for (const o of order){
-      try{ await updateDoc(doc(db, 'quizzes', currentQuizId, 'questions', o.id), { orderIndex: o.idx }); }
-      catch(e){ console.error('orderIndex update failed', o.id, e); }
-    }
-  };
-
-  rows.forEach(row => {
-    row.addEventListener('dragstart', (e)=>{
-      // ne pas demarrer de glissement si on clique sur un bouton/lien (sinon le clic est avale)
-      if (e.target.closest('button, a, input, select, textarea')) { e.preventDefault(); return; }
-      dragSrc = row;
-      row.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-    });
-    row.addEventListener('dragend', async ()=>{
-      row.classList.remove('dragging');
-      if (!dragSrc) return; // glissement annule (clic sur un bouton)
-      dragSrc = null;
-      await saveOrder();
-    });
-    row.addEventListener('dragover', (e)=>{
-      e.preventDefault();
-      const target = row;
-      if (target === dragSrc) return;
-      const rect = target.getBoundingClientRect();
-      const before = (e.clientY - rect.top) < (rect.height / 2);
-      list.insertBefore(dragSrc, before ? target : target.nextSibling);
-    });
-  });
+// ---------- Résultats ----------
+/** Score d'un résultat : calculé à partir des clés pour la v2, valeur enregistrée pour les anciens résultats. */
+function scoreOf(r) {
+  if (r.v === 2) {
+    let ok = 0;
+    (r.answers || []).forEach((a) => { const k = correctOf(r.quizId, a.questionId); if (typeof k === "number" && a.chosenIndex === k) ok++; });
+    return { score: ok, total: r.total || (r.answers || []).length };
+  }
+  return { score: Number(r.score || 0), total: Number(r.total || 0) };
+}
+function pct(sc) { return sc.total ? Math.round((sc.score / sc.total) * 100) : 0; }
+function trustBadge(r) {
+  const t = r.trust && typeof r.trust.score === "number" ? r.trust.score : null;
+  if (t === null) return '<span class="badge">—</span>';
+  const cls = t >= 90 ? "badge-success" : t >= 70 ? "badge-warn" : "badge-danger";
+  const lost = (r.trust && r.trust.lostCount) || 0;
+  return '<span class="badge ' + cls + '" title="' + lost + " sortie(s) de fenêtre" + '"><span class="dot"></span>' + t + "/100</span>";
+}
+function fmtDate(r) {
+  const d = toDate(r.createdAt);
+  return d ? d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" }) + " · " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) : "—";
 }
 
+function renderResultsFilter() {
+  const sel = $("resultsQuiz");
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Tous les questionnaires</option>' + quizzes.map((q) => '<option value="' + esc(q.id) + '">' + esc(q.title) + "</option>").join("");
+  if (cur && quizzes.some((q) => q.id === cur)) sel.value = cur;
+}
+$("resultsQuiz").addEventListener("change", renderResults);
+$("resultsSearch").addEventListener("input", renderResults);
+
+function filteredResults() {
+  const qz = $("resultsQuiz").value;
+  const term = $("resultsSearch").value.trim().toLowerCase();
+  return results.filter((r) => (!qz || r.quizId === qz) && (!term || String(r.candidateName || "").toLowerCase().includes(term)));
+}
+
+function renderResults() {
+  if ($("view-results").classList.contains("hidden")) return;
+  const rows = filteredResults();
+  // Indicateurs
+  const scores = rows.map((r) => pct(scoreOf(r)));
+  const trusts = rows.map((r) => r.trust && r.trust.score).filter((x) => typeof x === "number");
+  const durations = rows.map((r) => r.durationMs).filter((x) => x > 0);
+  const avg = (a) => (a.length ? Math.round(a.reduce((s, x) => s + x, 0) / a.length) : null);
+  const kpi = (label, value) => '<div class="kpi"><div class="kpi-label">' + label + '</div><div class="kpi-value">' + value + "</div></div>";
+  $("kpis").innerHTML = kpi("Candidats", rows.length) +
+    kpi("Score moyen", avg(scores) === null ? "—" : avg(scores) + " %") +
+    kpi("Confiance moyenne", avg(trusts) === null ? "—" : avg(trusts) + "/100") +
+    kpi("Durée moyenne", durations.length ? fmtDuration(avg(durations)) : "—");
+
+  // Tableau
+  $("resultsBody").innerHTML = rows.length ? rows.map((r) => {
+    const sc = scoreOf(r), p = pct(sc);
+    return '<tr class="clickable" data-open="' + esc(r.id) + '">' +
+      "<td><b>" + esc(r.candidateName || "(Inconnu)") + "</b>" + (r.trust && r.trust.reloads ? ' <span class="badge badge-warn" title="Page rechargée pendant le test">' + r.trust.reloads + " recharg.</span>" : "") + "</td>" +
+      '<td class="muted">' + esc(r.quizTitle || "") + "</td>" +
+      '<td class="muted" style="white-space:nowrap">' + fmtDate(r) + "</td>" +
+      '<td><div class="meter"><div class="meter-track"><div class="meter-fill ' + levelClass(p) + '" style="width:' + p + '%"></div></div>' +
+        '<span class="meter-label">' + sc.score + "/" + sc.total + "</span></div></td>" +
+      '<td class="num muted">' + fmtDuration(r.durationMs) + "</td>" +
+      "<td>" + trustBadge(r) + "</td>" +
+      '<td class="num" style="white-space:nowrap">' +
+        '<button class="btn btn-ghost btn-icon btn-sm" type="button" data-open="' + esc(r.id) + '" title="Voir le détail" aria-label="Voir le détail">' + icon("eye", "icon-sm") + "</button>" +
+        '<button class="btn btn-ghost btn-icon btn-sm btn-danger" type="button" data-delres="' + esc(r.id) + '" title="Supprimer" aria-label="Supprimer">' + icon("trash", "icon-sm") + "</button></td>" +
+      "</tr>";
+  }).join("") : '<tr><td colspan="7"><div class="empty" style="border:none">' + icon("chart") + "<div>Aucun résultat pour cette sélection.</div></div></td></tr>";
+
+  renderStats(rows);
+}
+
+$("resultsBody").addEventListener("click", async (e) => {
+  const del = e.target.closest("[data-delres]");
+  if (del) {
+    e.stopPropagation();
+    const r = results.find((x) => x.id === del.dataset.delres);
+    const ok = await confirmDialog({ title: "Supprimer ce résultat ?", message: "Le résultat de <b>" + esc(r && r.candidateName) + "</b> sera supprimé définitivement.", confirmText: "Supprimer", danger: true });
+    if (!ok) return;
+    try { await deleteDoc(doc(db, "results", del.dataset.delres)); toast("Résultat supprimé.", "success"); }
+    catch (err) { toast("Suppression impossible : " + (err.code || err.message), "error"); }
+    return;
+  }
+  const open = e.target.closest("[data-open]");
+  if (open) openDetail(results.find((x) => x.id === open.dataset.open));
+});
+
+// Analyse par question (uniquement quand un QCM est sélectionné)
+function renderStats(rows) {
+  const qz = $("resultsQuiz").value;
+  const qs = questionsByQuiz[qz] || [];
+  const card = $("statsCard");
+  if (!qz || !rows.length || !qs.length) { card.classList.add("hidden"); return; }
+  const st = {};
+  rows.forEach((r) => {
+    if (r.v === 2) {
+      (r.answers || []).forEach((a) => {
+        const k = correctOf(r.quizId, a.questionId);
+        if (typeof k !== "number") return;
+        const x = st[a.questionId] || (st[a.questionId] = { n: 0, ok: 0, t: 0 });
+        x.n++; if (a.chosenIndex === k) x.ok++; x.t += a.timeMs || 0;
+      });
+    } else {
+      (r.answersDetails || []).forEach((a) => {
+        if (!a.questionId) return;
+        const x = st[a.questionId] || (st[a.questionId] = { n: 0, ok: 0, t: 0 });
+        x.n++; if (a.chosenIndex === a.correctIndex) x.ok++;
+      });
+    }
+  });
+  card.classList.remove("hidden");
+  $("statsBody").innerHTML = qs.map((q, i) => {
+    const x = st[q.id];
+    const p = x && x.n ? Math.round((x.ok / x.n) * 100) : null;
+    return '<div class="stat-row"><span class="q-row-num">' + (i + 1) + "</span>" +
+      '<div style="min-width:0"><div style="overflow-wrap:anywhere">' + esc(q.text) + "</div>" +
+      '<div class="small">' + (x ? x.ok + " / " + x.n + " bonnes réponses" + (x.t ? " · " + fmtDuration(x.t / x.n) + " en moyenne" : "") : "Pas encore de réponse") + "</div></div>" +
+      (p === null ? '<span class="small">—</span>' :
+        '<div class="meter"><div class="meter-track"><div class="meter-fill ' + levelClass(p) + '" style="width:' + p + '%"></div></div><span class="meter-label">' + p + " %</span></div>") +
+      "</div>";
+  }).join("");
+}
+
+// Export CSV (séparateur « ; » et BOM pour une ouverture directe dans Excel)
+$("exportBtn").addEventListener("click", () => {
+  const rows = filteredResults();
+  if (!rows.length) { toast("Rien à exporter.", "error"); return; }
+  const cell = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
+  const lines = [["Candidat", "Questionnaire", "Date", "Score", "Total", "Pourcentage", "Durée (s)", "Confiance /100", "Sorties de fenêtre", "Rechargements", "Fin"].map(cell).join(";")];
+  rows.forEach((r) => {
+    const sc = scoreOf(r), d = toDate(r.createdAt);
+    lines.push([r.candidateName, r.quizTitle, d ? d.toLocaleString("fr-FR") : "", sc.score, sc.total, pct(sc),
+      r.durationMs ? Math.round(r.durationMs / 1000) : "", r.trust ? r.trust.score : "", r.trust ? r.trust.lostCount : "",
+      r.trust ? r.trust.reloads || 0 : "", r.endedBy === "timer" ? "Temps écoulé" : "Envoyé"].map(cell).join(";"));
+  });
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "resultats-qcm-" + new Date().toISOString().slice(0, 10) + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+
+// ---------- Détail d'un candidat ----------
+const dDialog = $("detailDialog");
+$("detailClose").addEventListener("click", () => dDialog.close());
+dDialog.addEventListener("click", (e) => { if (e.target === dDialog) dDialog.close(); });
+
+function openDetail(r) {
+  if (!r) return;
+  const sc = scoreOf(r), p = pct(sc);
+  $("detailHead").innerHTML =
+    '<span class="eyebrow">' + esc(r.quizTitle || "") + " · " + fmtDate(r) + "</span>" +
+    '<h2 style="margin-top:4px">' + esc(r.candidateName || "(Inconnu)") + "</h2>" +
+    '<div class="row" style="gap:8px;margin-top:12px">' +
+      '<span class="badge badge-brand">Score ' + sc.score + "/" + sc.total + " · " + p + " %</span>" +
+      trustBadge(r) +
+      (r.durationMs ? '<span class="badge">' + icon("clock", "icon-sm") + fmtDuration(r.durationMs) + "</span>" : "") +
+      (r.trust && r.trust.lostCount ? '<span class="badge">' + r.trust.lostCount + " sortie(s) de fenêtre</span>" : "") +
+      (r.trust && r.trust.reloads ? '<span class="badge badge-warn">' + r.trust.reloads + " rechargement(s)</span>" : "") +
+      (r.endedBy === "timer" ? '<span class="badge badge-warn">Temps écoulé</span>' : "") +
+    "</div>";
+
+  const v2 = r.v === 2;
+  const list = v2 ? r.answers || [] : r.answersDetails || [];
+  const label = (opts, i, otherText) =>
+    i === "other" ? "<i>Autre :</i> " + esc(otherText || "(vide)") : typeof i === "number" && i >= 0 && opts[i] != null ? esc(opts[i]) : '<span class="muted">Sans réponse</span>';
+  const body = list.map((a, i) => {
+    const opts = a.options || [];
+    const k = v2 ? correctOf(r.quizId, a.questionId) : a.correctIndex;
+    const good = typeof k === "number" && a.chosenIndex === k;
+    const status = a.chosenIndex === "other" ? '<span class="badge">À évaluer</span>'
+                 : typeof k !== "number" ? '<span class="badge">?</span>'
+                 : good ? '<span class="badge badge-success">' + icon("check", "icon-sm") + "</span>"
+                 : '<span class="badge badge-danger">' + icon("x", "icon-sm") + "</span>";
+    return "<tr><td class=\"muted\">" + (i + 1) + "</td>" +
+      '<td style="min-width:220px">' + esc(a.questionText || "(?)") + (a.flagged ? ' <span class="badge badge-warn">' + icon("flag", "icon-sm") + "</span>" : "") + "</td>" +
+      "<td>" + label(opts, a.chosenIndex, a.otherText) + "</td>" +
+      "<td" + (good ? ' class="muted"' : "") + ">" + (typeof k === "number" ? esc(opts[k]) : "—") + "</td>" +
+      '<td class="num muted">' + (a.timeMs ? fmtDuration(a.timeMs) : "—") + "</td>" +
+      '<td class="num">' + (a.focusLosses ? '<span class="badge badge-warn">' + a.focusLosses + " · " + Math.round((a.offWindowMs || 0) / 1000) + " s</span>" : '<span class="muted">0</span>') + "</td>" +
+      "<td>" + status + "</td></tr>";
+  }).join("");
+  $("detailBody").innerHTML = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>Question</th><th>Réponse donnée</th><th>Bonne réponse</th><th class="num">Temps</th><th class="num">Sorties</th><th></th></tr></thead><tbody>' +
+    (body || '<tr><td colspan="7" class="muted">Aucun détail enregistré.</td></tr>') + "</tbody></table></div>";
+  dDialog.showModal();
+}

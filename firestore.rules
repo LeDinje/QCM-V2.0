@@ -1,4 +1,4 @@
-// Firestore security rules for QCM Pôle Sud starter (v3)
+// Règles de sécurité Firestore — QCM Pôle Sud v2
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -11,7 +11,8 @@ service cloud.firestore {
       return isSignedIn() && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
-    // Public quizzes and questions: readable by tous
+    // QCM et questions : lisibles par tous (les candidats doivent les voir), écriture réservée aux admins.
+    // Les questions ne contiennent PAS la bonne réponse (voir answerKeys).
     match /quizzes/{quizId} {
       allow read: if true;
       allow create, update, delete: if isAdmin();
@@ -21,19 +22,31 @@ service cloud.firestore {
       }
     }
 
-    // Results: candidats écrivent leurs propres résultats (auth anonyme ok)
-    match /results/{resultId} {
-      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
-      allow read: if isAdmin();
-      allow delete: if isAdmin();
-      allow update: if isAdmin();
+    // Bonnes réponses : un document par QCM { keys: { questionId: index } }, réservé aux admins.
+    match /answerKeys/{quizId} {
+      allow read, write: if isAdmin();
     }
 
-    // Admins collection:
+    // Résultats : un candidat (même anonyme) crée son propre résultat, sans pouvoir fixer de score
+    // (le score est calculé côté admin à partir de answerKeys). Lecture / modification / suppression : admins.
+    function isV2Result(d) {
+      return d.v == 2
+        && !d.keys().hasAny(['score', 'answersDetails'])
+        && d.candidateName is string
+        && d.candidateName.size() > 0
+        && d.candidateName.size() <= 100
+        && d.quizId is string;
+    }
+    match /results/{resultId} {
+      allow create: if isSignedIn()
+        && request.resource.data.uid == request.auth.uid
+        && isV2Result(request.resource.data);
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Admins : la présence d'un document = administrateur. Gestion uniquement depuis la console Firebase.
     match /admins/{uid} {
-      // Seul l'utilisateur connecté peut lire son propre doc admin
       allow read: if isSignedIn() && request.auth.uid == uid;
-      // La création/modification/suppression d'admins se fait uniquement depuis la console Firebase
       allow create, update, delete: if false;
     }
   }
