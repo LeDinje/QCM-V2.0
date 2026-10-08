@@ -165,6 +165,13 @@ function renderBanner() {
 $("migrateBtn").addEventListener("click", async () => {
   const legacy = legacyQuestions();
   if (!legacy.length) return;
+  const ok = await confirmDialog({
+    title: "Sécuriser les bonnes réponses ?",
+    message: "Les bonnes réponses seront retirées des questions et rangées dans un espace réservé aux administrateurs.<br><br>" +
+             "<b>À ne faire qu'une fois la v2 en production</b> : l'ancienne version du site, si elle est encore en ligne, ne pourra plus noter ces questions.",
+    confirmText: "Sécuriser",
+  });
+  if (!ok) return;
   $("migrateBtn").disabled = true;
   try {
     for (let i = 0; i < legacy.length; i += 200) {           // lots de 200 (limite Firestore : 500 opérations)

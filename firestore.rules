@@ -29,15 +29,23 @@ service cloud.firestore {
 
     // Résultats : un candidat (même anonyme) crée son propre résultat, sans pouvoir fixer de score
     // (le score est calculé côté admin à partir de answerKeys). Lecture / modification / suppression : admins.
+    function isV2Result(d) {
+      return d.v == 2
+        && !d.keys().hasAny(['score', 'answersDetails'])
+        && d.candidateName is string
+        && d.candidateName.size() > 0
+        && d.candidateName.size() <= 100
+        && d.quizId is string;
+    }
+    // PHASE D'APERÇU : l'ancien site (v1) est encore en ligne et envoie des résultats avec un score.
+    // Une fois la v2 mise en production, SUPPRIMER cette fonction et « || isLegacyResult(...) » ci-dessous.
+    function isLegacyResult(d) {
+      return !d.keys().hasAny(['v']);
+    }
     match /results/{resultId} {
       allow create: if isSignedIn()
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.v == 2
-        && !request.resource.data.keys().hasAny(['score', 'answersDetails'])
-        && request.resource.data.candidateName is string
-        && request.resource.data.candidateName.size() > 0
-        && request.resource.data.candidateName.size() <= 100
-        && request.resource.data.quizId is string;
+        && (isV2Result(request.resource.data) || isLegacyResult(request.resource.data));
       allow read, update, delete: if isAdmin();
     }
 
