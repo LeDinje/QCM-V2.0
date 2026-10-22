@@ -545,3 +545,4 @@ summary::-webkit-details-marker{ display:none; }
 .save-state{ display:inline-flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); white-space:nowrap; }
 .save-state.ok{ color:var(--success); }
 .save-state.err{ color:var(--danger); }
+.icon.rot90{ transform:rotate(90deg); }

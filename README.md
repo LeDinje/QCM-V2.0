@@ -90,7 +90,7 @@ Fichiers : `public/integration.html` + `public/js/integration.js` (+ `integratio
 - Le technicien saisit son nom, sa date d'arrivée et son référent, puis indique pour chaque sujet **Pas vu / Partiel / Vu** et ajoute des remarques par section. Sauvegarde automatique (500 ms).
 - Son **lien personnel** (`/integration#<identifiant>`) lui permet de revenir modifier ses réponses ; sur le même navigateur, `/integration` rouvre directement sa checklist.
 - Avancement = (Vu + 0,5 × Partiel) / total.
-- Le **contenu** (sections et sujets) est dans `public/data/checklist-integration.json`. ⚠️ Les réponses sont liées à la position des sujets : ajouter un sujet **à la fin** d'une section ne pose pas de problème, en insérer ou en supprimer un au milieu décale les réponses déjà données.
+- Le **contenu** (sections et sujets) se modifie dans l'onglet **Intégration → Modifier le contenu** (super admins) et est stocké dans `integration_config/current`. Le fichier `public/data/checklist-integration.json` ne sert que de contenu par défaut tant que rien n'a été enregistré. Chaque sujet a un identifiant fixe : le renommer ou le déplacer conserve les réponses déjà données ; le supprimer le retire de l'avancement.
 
 > **Premier super admin** : dans la console Firebase → Firestore → collection `admins` → votre document (votre UID), ajouter le champ `role` = `superadmin` (type chaîne).
 
@@ -108,8 +108,9 @@ answerKeys/{quizId}               — bonnes réponses du QCM : { keys: { questi
 results/{resultId}                — un résultat (v: 2) : candidateName, quizId, quizTitle, total, answered,
                                      answers[] (questionId, questionText, options, chosenIndex, otherText, timeMs,
                                      flagged, focusLosses, offWindowMs), durationMs, endedBy, trust{}, uid, createdAt
+integration_config/current        — contenu de la checklist : sections [{ id, name, tag, items: [{ id, label }] }]
 integration_checklists/{id}       — une checklist d'intégration (id = lien personnel, aléatoire) : techName, startDate,
-                                     referent, items { "<section>-<n>": 0|1|2 }, notes { section: texte },
+                                     referent, items { "<id du sujet>": 0|1|2 }, notes { section: texte },
                                      sectionUpdatedAt, createdAt, updatedAt
 admins/{uid}                      — un compte admin : email, role ("admin" | "superadmin"), disabled, createdAt,
                                      createdBy, lastLoginAt
@@ -121,6 +122,7 @@ Le **score** est calculé dans l'espace admin en comparant `chosenIndex` à `ans
 - **QCM et questions** : lecture publique, écriture réservée aux admins.
 - **Bonnes réponses (`answerKeys`)** : lecture et écriture réservées aux admins.
 - **Résultats** : un candidat (même anonyme) peut **créer** son propre résultat au format v2, **sans pouvoir y mettre de score** ; seuls les admins peuvent les lire / modifier / supprimer.
+- **Contenu de la checklist** (`integration_config`) : lecture par la page technicien, modification réservée aux super admins.
 - **Checklists d'intégration** : lecture et complétion par toute personne qui connaît le lien personnel (le technicien ne peut modifier que ses réponses et remarques) ; liste et suppression réservées aux super admins.
 - **Admins** : chacun lit son propre document ; un **super admin** gère les autres comptes (jamais le sien). Un compte `disabled: true` perd tous ses droits.
 

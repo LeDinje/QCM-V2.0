@@ -1,30 +1,48 @@
 /**
  * Checklist d'intégration technicien : logique partagée entre la page cachée (/integration)
  * et l'onglet « Intégration » de l'espace admin.
- * Le contenu (sections + items) vient de /data/checklist-integration.json.
- * Statut d'un item : 0 = Pas vu, 1 = Partiel, 2 = Vu (item absent = 0). Clé d'item : "<idSection>-<index>".
+ * Contenu (sections + sujets) : document Firestore integration_config/current, modifiable par les super admins.
+ * Tant qu'il n'existe pas, le contenu par défaut vient de /data/checklist-integration.json.
+ * Chaque sujet a un identifiant FIXE (ex. "acces-0", "acces-k3f9x2") : modifier, déplacer ou supprimer
+ * un sujet ne décale jamais les réponses déjà données. Statut : 0 = Pas vu, 1 = Partiel, 2 = Vu (absent = 0).
  */
+import { db, doc, getDoc } from "./common.js";
 
 export const COLLECTION = "integration_checklists";
+export const CONFIG_REF = ["integration_config", "current"];
 export const STATUS = [
   { v: 0, label: "Pas vu", cls: "s0" },
   { v: 1, label: "Partiel", cls: "s1" },
   { v: 2, label: "Vu", cls: "s2" },
 ];
 
-let configPromise = null;
-/** Charge la configuration de la checklist (une seule fois). */
-export function loadConfig() {
-  if (!configPromise) {
-    configPromise = fetch("/data/checklist-integration.json", { cache: "no-store" }).then((r) => {
-      if (!r.ok) throw new Error("config " + r.status);
-      return r.json();
-    });
-  }
-  return configPromise;
+/** Met le contenu au format { id, name, tag, items: [{ id, label }] } (le fichier JSON d'origine liste des textes). */
+export function normalize(raw) {
+  return (raw || []).map((sec) => ({
+    id: String(sec.id),
+    name: String(sec.name || ""),
+    tag: String(sec.tag || ""),
+    items: (sec.items || []).map((it, i) => (typeof it === "string" ? { id: sec.id + "-" + i, label: it } : { id: String(it.id), label: String(it.label || "") })),
+  }));
 }
 
-export function itemKey(sectionId, index) { return sectionId + "-" + index; }
+/** Charge le contenu de la checklist : version en base si elle existe, sinon le fichier par défaut. */
+export async function loadConfig() {
+  try {
+    const snap = await getDoc(doc(db, ...CONFIG_REF));
+    if (snap.exists() && Array.isArray((snap.data() || {}).sections)) return normalize(snap.data().sections);
+  } catch (e) { console.warn("[integration config]", e); }
+  const r = await fetch("/data/checklist-integration.json", { cache: "no-store" });
+  if (!r.ok) throw new Error("config " + r.status);
+  return normalize(await r.json());
+}
+
+/** Identifiant court aléatoire (nouveaux sujets / sections). */
+export function shortId() {
+  const b = new Uint8Array(4);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(36).padStart(2, "0")).join("").slice(0, 7);
+}
 
 /** Statut d'un item (0 par défaut). */
 export function statusOf(items, key) {
@@ -45,7 +63,7 @@ export function stats(config, items) {
   const all = [];
   const sections = {};
   config.forEach((sec) => {
-    const keys = sec.items.map((_, i) => itemKey(sec.id, i));
+    const keys = sec.items.map((it) => it.id);
     all.push(...keys);
     sections[sec.id] = count(keys, items);
   });
@@ -71,7 +89,7 @@ export function buildBilan(config, data) {
   if (data.referent) lines.push("Référent : " + data.referent);
   config.forEach((sec) => {
     lines.push("", "■ " + sec.name + " (" + st.sections[sec.id].vu + "/" + st.sections[sec.id].total + " vu)");
-    sec.items.forEach((label, i) => lines.push("  [" + STATUS[statusOf(items, itemKey(sec.id, i))].label + "] " + label));
+    sec.items.forEach((it) => lines.push("  [" + STATUS[statusOf(items, it.id)].label + "] " + it.label));
     if (notes[sec.id] && notes[sec.id].trim()) lines.push("  Remarques : " + notes[sec.id].trim().replace(/\s*\n\s*/g, " / "));
   });
   return lines.join("\n");

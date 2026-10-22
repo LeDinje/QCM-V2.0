@@ -5,7 +5,7 @@
  */
 import { db, doc, getDoc, setDoc, updateDoc, ensureAnonAuth, serverTimestamp } from "./common.js";
 import { esc, icon, initPage, toast } from "./ui.js";
-import { COLLECTION, STATUS, loadConfig, itemKey, statusOf, stats, sectionLabel, frDate, newId } from "./integration-common.js";
+import { COLLECTION, STATUS, loadConfig, statusOf, stats, sectionLabel, frDate, newId } from "./integration-common.js";
 
 initPage();
 
@@ -92,8 +92,8 @@ function renderChecklist() {
         '<div><h2>' + esc(sec.name) + '</h2>' + (sec.tag ? '<span class="badge" style="margin-top:6px">' + esc(sec.tag) + "</span>" : "") + "</div>" +
         '<span class="small sec-count" data-count="' + esc(sec.id) + '"></span>' +
       "</div>" +
-      '<div class="cl-items">' + sec.items.map((label, i) => {
-        const k = itemKey(sec.id, i), cur = statusOf(items, k);
+      '<div class="cl-items">' + sec.items.map((it) => {
+        const k = it.id, cur = statusOf(items, k), label = it.label;
         return '<div class="cl-item"><span class="cl-label">' + esc(label) + "</span>" +
           '<div class="seg" role="radiogroup" aria-label="' + esc(label) + '">' +
             STATUS.map((s) => '<button type="button" class="' + s.cls + '" role="radio" aria-checked="' + (cur === s.v) + '" data-k="' + esc(k) + '" data-v="' + s.v + '">' + s.label + "</button>").join("") +
@@ -121,7 +121,7 @@ $("sections").addEventListener("click", (e) => {
   b.parentElement.querySelectorAll("button").forEach((x) => x.setAttribute("aria-checked", String(x === b)));
   data.items = data.items || {};
   data.items[k] = v;
-  queue("items." + k, v, k.slice(0, k.lastIndexOf("-")));
+  queue("items." + k, v, b.closest("[data-sec]").dataset.sec);
   renderProgress();
 });
 

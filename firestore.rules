@@ -76,6 +76,15 @@ service cloud.firestore {
         && request.resource.data.notes is map && request.resource.data.notes.size() <= 50;
     }
 
+    // Contenu de la checklist d'intégration (sections + sujets) : lu par la page technicien, modifié par les super admins.
+    match /integration_config/{configId} {
+      allow read: if isSignedIn();
+      allow write: if isSuperAdmin() && configId == 'current'
+        && request.resource.data.sections is list
+        && request.resource.data.sections.size() > 0
+        && request.resource.data.sections.size() <= 50;
+    }
+
     // Admins : un document par compte admin { email, role: 'admin' | 'superadmin', disabled, createdAt, createdBy, lastLoginAt }.
     // - chacun lit son propre document et peut y mettre à jour son e-mail et sa date de dernière connexion ;
     // - un super admin gère les autres comptes, mais jamais le sien (impossible de se retirer ses propres droits) ;
