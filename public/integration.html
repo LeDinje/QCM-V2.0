@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Checklist d'intégration – Pôle Sud</title>
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+  <script>try{var t=localStorage.getItem('qcm.theme');if(t)document.documentElement.dataset.theme=t;}catch(e){}</script>
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/js/integration.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <div class="wrap">
+      <span class="brand-link">
+        <img src="/assets/logo-polesud.png" alt="Pôle Sud">
+        <span class="brand-sep"></span>
+        <span class="brand-sub">Intégration technicien</span>
+      </span>
+      <div class="header-actions">
+        <span class="save-state hidden" id="saveState" role="status" aria-live="polite"></span>
+        <button class="btn btn-ghost btn-icon" type="button" data-theme-toggle></button>
+      </div>
+    </div>
+  </header>
+
+  <main class="page">
+    <div class="wrap wrap-narrow">
+
+      <section id="step-loading" class="row" style="justify-content:center;padding:80px 0"><div class="spinner"></div></section>
+
+      <!-- Démarrage : le technicien se présente -->
+      <section id="step-start" class="stack-lg hidden">
+        <div>
+          <span class="eyebrow">Bienvenue chez Pôle Sud</span>
+          <h1 style="margin-top:6px">Checklist d'intégration technicien</h1>
+          <p class="muted" style="margin-top:8px">Cette checklist suit votre prise en main des outils et des contrats. Remplissez-la au fil de vos premières semaines : elle est enregistrée automatiquement.</p>
+        </div>
+        <form class="card stack-lg" id="startForm" novalidate>
+          <div class="field">
+            <label for="techName">Prénom et nom</label>
+            <input class="input" id="techName" autocomplete="name" maxlength="100" placeholder="Ex : Camille Martin">
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="startDate">Date d'arrivée</label>
+              <input class="input" id="startDate" type="date">
+            </div>
+            <div class="field">
+              <label for="referent">Référent</label>
+              <input class="input" id="referent" maxlength="100" placeholder="Ex : Anthony">
+            </div>
+          </div>
+          <div class="row-between">
+            <span class="small" id="startError" role="alert" style="color:var(--danger)"></span>
+            <button class="btn btn-primary btn-lg" type="submit" id="startBtn">Commencer <i data-icon="arrow-right"></i></button>
+          </div>
+        </form>
+      </section>
+
+      <!-- Lien introuvable -->
+      <section id="step-notfound" class="hidden">
+        <div class="card" style="text-align:center;padding:48px 28px">
+          <div class="done-icon" style="background:var(--surface-2);color:var(--muted)"><i data-icon="search"></i></div>
+          <span class="eyebrow">Erreur 404</span>
+          <h1 style="margin-top:6px">Page introuvable</h1>
+          <p class="muted" style="margin-top:10px">Ce lien ne correspond à aucune checklist. Vérifiez l'adresse reçue, ou demandez-la à votre référent.</p>
+        </div>
+      </section>
+
+      <!-- Checklist -->
+      <section id="step-checklist" class="stack-lg hidden">
+        <div class="card stack">
+          <div class="row-between" style="align-items:flex-start">
+            <div>
+              <span class="eyebrow">Checklist d'intégration technicien</span>
+              <h1 style="margin-top:6px" id="hName"></h1>
+              <div class="row small" style="margin-top:6px;gap:16px">
+                <span>Arrivée le <b id="hDate"></b></span>
+                <span>Référent : <b id="hRef"></b></span>
+              </div>
+            </div>
+            <div style="text-align:right">
+              <div class="kpi-value" id="pctValue">0 %</div>
+              <div class="small">d'avancement</div>
+            </div>
+          </div>
+          <div class="progress" style="margin-top:4px"><div class="progress-fill" id="pctFill" style="width:0"></div></div>
+          <div class="legend" style="margin-top:4px">
+            <span><i class="lg-s0"></i> <b>Pas vu</b> = jamais abordé</span>
+            <span><i class="lg-s1"></i> <b>Partiel</b> = vu une fois, pas encore autonome</span>
+            <span><i class="lg-s2"></i> <b>Vu</b> = je sais le faire seul</span>
+          </div>
+        </div>
+
+        <div class="alert alert-brand" id="linkBox">
+          <i data-icon="link"></i>
+          <div class="alert-body">
+            <b>Votre lien personnel</b>
+            <span class="small">Gardez-le en favori pour revenir compléter votre checklist, depuis n'importe quel appareil.</span>
+            <code class="small" id="personalLink" style="overflow-wrap:anywhere;user-select:all"></code>
+          </div>
+          <button class="btn btn-sm" type="button" id="copyLinkBtn"><i data-icon="copy" class="icon-sm"></i> Copier</button>
+        </div>
+
+        <div id="sections" class="stack-lg"></div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

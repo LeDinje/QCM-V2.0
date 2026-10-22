@@ -54,6 +54,28 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
+    // Checklists d'intégration technicien (page cachée /integration).
+    // L'identifiant du document EST le lien personnel (aléatoire, 36 caractères) : le connaître suffit pour lire
+    // et compléter SA checklist. Personne d'autre qu'un super admin ne peut lister les checklists ni en supprimer.
+    function validChecklistCreate(d) {
+      return d.keys().hasOnly(['techName', 'startDate', 'referent', 'items', 'notes', 'sectionUpdatedAt', 'createdAt', 'updatedAt'])
+        && d.techName is string && d.techName.size() > 0 && d.techName.size() <= 100
+        && d.startDate is string && d.startDate.size() <= 20
+        && d.referent is string && d.referent.size() <= 100
+        && d.items is map && d.items.size() == 0
+        && d.notes is map && d.notes.size() == 0;
+    }
+    match /integration_checklists/{checklistId} {
+      allow get: if isSignedIn();
+      allow list, delete: if isSuperAdmin();
+      allow create: if isSignedIn() && checklistId.size() >= 32 && validChecklistCreate(request.resource.data);
+      // le technicien ne modifie que ses réponses et ses remarques (nom, date et référent sont figés)
+      allow update: if isSignedIn()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['items', 'notes', 'sectionUpdatedAt', 'updatedAt'])
+        && request.resource.data.items is map && request.resource.data.items.size() <= 300
+        && request.resource.data.notes is map && request.resource.data.notes.size() <= 50;
+    }
+
     // Admins : un document par compte admin { email, role: 'admin' | 'superadmin', disabled, createdAt, createdBy, lastLoginAt }.
     // - chacun lit son propre document et peut y mettre à jour son e-mail et sa date de dernière connexion ;
     // - un super admin gère les autres comptes, mais jamais le sien (impossible de se retirer ses propres droits) ;
