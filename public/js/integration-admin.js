@@ -113,6 +113,7 @@ function renderDetail(r) {
     "</div>";
   }).join("");
   $("copyBilanBtn").onclick = () => copy(buildBilan(config, r), "Bilan copié : collez-le dans Teams ou un mail.");
+  $("pdfBilanBtn").onclick = () => exportPdf(r);
 }
 
 // ---------- Éditeur du contenu (sections + sujets) ----------
@@ -258,3 +259,84 @@ $("saveEditorBtn").addEventListener("click", async () => {
     toast("Enregistrement impossible : " + (err.code || err.message), "error");
   } finally { $("saveEditorBtn").disabled = false; }
 });
+
+// ---------- Export PDF (rapport imprimable → « Enregistrer au format PDF ») ----------
+const PDF_STATUS = [
+  { label: "Pas vu", bg: "#eef1f5", fg: "#475569" },
+  { label: "Partiel", bg: "#fdf0dc", fg: "#9a4b06" },
+  { label: "Vu", bg: "#e3f4ea", fg: "#14703a" },
+];
+
+/** Rapport HTML autonome (A4) d'une checklist. */
+export function reportHtml(cfg, r) {
+  const items = r.items || {}, notes = r.notes || {};
+  const st = stats(cfg, items);
+  const now = new Date();
+  const title = "Integration - " + (r.techName || "technicien") + " - " + now.toISOString().slice(0, 10);
+  const pill = (s) => '<span class="pill" style="background:' + PDF_STATUS[s].bg + ";color:" + PDF_STATUS[s].fg + '">' + PDF_STATUS[s].label + "</span>";
+  const sections = cfg.map((sec) => {
+    const c = st.sections[sec.id];
+    return '<section><div class="sec-head"><h2>' + esc(sec.name) + (sec.tag ? ' <span class="tag">' + esc(sec.tag) + "</span>" : "") + "</h2>" +
+      '<span class="count">' + c.vu + "/" + c.total + " vu" + (c.partiel ? " · " + c.partiel + " partiel" + (c.partiel > 1 ? "s" : "") : "") + "</span></div>" +
+      "<table>" + sec.items.map((it) => "<tr><td>" + esc(it.label) + '</td><td class="st">' + pill(statusOf(items, it.id)) + "</td></tr>").join("") + "</table>" +
+      (notes[sec.id] && notes[sec.id].trim() ? '<div class="notes"><b>Remarques du technicien</b><br>' + esc(notes[sec.id].trim()).replace(/\n/g, "<br>") + "</div>" : "") +
+      "</section>";
+  }).join("");
+  return '<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>' + esc(title) + "</title><style>" +
+    "@page{size:A4;margin:14mm 14mm 16mm}" +
+    "*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}" +
+    "body{margin:0;font-family:Inter,'Segoe UI',Arial,sans-serif;font-size:10.5pt;color:#0f1b33;line-height:1.4}" +
+    "header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #0b3a8c;padding-bottom:10px;margin-bottom:14px}" +
+    "header img{height:42px}.doc-title{text-align:right}.doc-title h1{margin:0;font-size:17pt;color:#0b3a8c}.doc-title div{color:#64748b;font-size:9pt}" +
+    ".who{display:flex;justify-content:space-between;gap:16px;align-items:flex-end;margin-bottom:6px}.who h2{margin:0;font-size:15pt}" +
+    ".meta{color:#475569;font-size:9.5pt;margin-top:2px}.pct{font-size:22pt;font-weight:700;color:#0b3a8c;line-height:1}.pct small{display:block;font-size:8.5pt;font-weight:400;color:#64748b;text-align:right}" +
+    ".bar{height:7px;background:#e9eef6;border-radius:4px;overflow:hidden;margin:8px 0 6px}.bar i{display:block;height:100%;background:#0b3a8c}" +
+    ".totals{display:flex;gap:6px;margin-bottom:14px}.legend{color:#64748b;font-size:8.5pt;margin-bottom:14px}" +
+    ".pill{display:inline-block;padding:2px 8px;border-radius:5px;font-size:8.5pt;font-weight:600;white-space:nowrap}" +
+    "section{break-inside:avoid;page-break-inside:avoid;margin-bottom:12px;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px}" +
+    ".sec-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}.sec-head h2{margin:0;font-size:11.5pt}" +
+    ".tag{font-size:8pt;font-weight:600;color:#475569;background:#f1f4f9;border-radius:4px;padding:1px 6px;margin-left:4px;vertical-align:middle}.count{font-size:9pt;color:#64748b}" +
+    "table{width:100%;border-collapse:collapse}td{font-size:9.5pt;padding:3px 0;border-top:1px solid #f1f4f9;vertical-align:top}tr:first-child td{border-top:none}td.st{text-align:right;width:80px}" +
+    ".notes{margin-top:6px;padding:6px 8px;background:#f5f7fb;border-radius:6px;font-size:9.5pt}" +
+    "footer{margin-top:16px;color:#94a3b8;font-size:8pt;text-align:center}" +
+    "</style></head><body>" +
+    '<header><img src="' + location.origin + '/assets/logo-polesud.png" alt="Pôle Sud"><div class="doc-title"><h1>Bilan d\'intégration</h1><div>Édité le ' +
+      now.toLocaleDateString("fr-FR") + " à " + now.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) + "</div></div></header>" +
+    '<div class="who"><div><h2>' + esc(r.techName || "") + '</h2><div class="meta">Arrivée le ' + esc(frDate(r.startDate)) + " · Référent : " + esc(r.referent || "—") +
+      " · Dernière mise à jour : " + esc((toDate(r.updatedAt) || now).toLocaleDateString("fr-FR")) + "</div></div>" +
+      '<div class="pct">' + st.pct + " %<small>d'avancement</small></div></div>" +
+    '<div class="bar"><i style="width:' + st.pct + '%"></i></div>' +
+    '<div class="totals">' + '<span class="pill" style="background:' + PDF_STATUS[2].bg + ";color:" + PDF_STATUS[2].fg + '">' + st.vu + " vu</span>" +
+      '<span class="pill" style="background:' + PDF_STATUS[1].bg + ";color:" + PDF_STATUS[1].fg + '">' + st.partiel + " partiel</span>" +
+      '<span class="pill" style="background:' + PDF_STATUS[0].bg + ";color:" + PDF_STATUS[0].fg + '">' + st.pasVu + " pas vu</span></div>" +
+    '<div class="legend">Pas vu = jamais abordé · Partiel = vu une fois, pas encore autonome · Vu = sait le faire seul · Avancement = (Vu + ½ Partiel) / total</div>' +
+    sections +
+    "<footer>Pôle Sud · Checklist d'intégration technicien</footer></body></html>";
+}
+
+/** Ouvre la fenêtre d'impression du rapport (choisir « Enregistrer au format PDF »). */
+function exportPdf(r) {
+  if (!r) return;
+  const old = document.getElementById("pdfFrame");
+  if (old) old.remove();
+  const f = document.createElement("iframe");
+  f.id = "pdfFrame";
+  f.setAttribute("aria-hidden", "true");
+  f.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden";
+  document.body.appendChild(f);
+  const w = f.contentWindow;
+  w.document.open();
+  w.document.write(reportHtml(config, r));
+  w.document.close();
+  const go = () => {
+    // le titre de la page devient le nom de fichier proposé pour le PDF
+    const prev = document.title;
+    document.title = w.document.title;
+    w.focus();
+    w.print();
+    setTimeout(() => { document.title = prev; }, 1000);
+  };
+  const img = w.document.querySelector("img");
+  if (img && !img.complete) { img.onload = go; img.onerror = go; } else setTimeout(go, 50);
+  toast("Dans la fenêtre d'impression, choisissez « Enregistrer au format PDF ».", "info");
+}

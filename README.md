@@ -81,7 +81,7 @@ Fichiers : `public/admin.html` + `public/js/admin.js`.
 
 Tout est **temps réel** grâce à `onSnapshot`.
 
-5. Onglet **Intégration** (super admins uniquement, fichier `public/js/integration-admin.js`) : suivi des checklists d'intégration des techniciens, détail par section, bilan à copier.
+5. Onglet **Intégration** (super admins uniquement, fichier `public/js/integration-admin.js`) : suivi des checklists d'intégration des techniciens, détail par section, bilan à copier et **export PDF** (rapport A4 imprimé via « Enregistrer au format PDF »).
 
 ### Checklist d'intégration technicien (page cachée)
 Fichiers : `public/integration.html` + `public/js/integration.js` (+ `integration-common.js`, partagé avec l'admin).
