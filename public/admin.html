@@ -173,10 +173,35 @@
 
       <!-- Checklists d'intégration (super admin uniquement) -->
       <section id="view-integration" class="hidden stack-lg">
-        <div>
-          <h1>Intégration des techniciens</h1>
-          <p class="muted" style="margin-top:4px">Suivi des checklists remplies par les nouveaux techniciens. Mise à jour en temps réel.</p>
+        <div class="row-between">
+          <div>
+            <h1>Intégration des techniciens</h1>
+            <p class="muted" style="margin-top:4px">Suivi des checklists remplies par les nouveaux techniciens. Mise à jour en temps réel.</p>
+          </div>
+          <button class="btn" type="button" id="editChecklistBtn"><i data-icon="pencil" class="icon-sm"></i> Modifier le contenu</button>
         </div>
+
+        <!-- Éditeur du contenu de la checklist -->
+        <div class="stack-lg hidden" id="checklistEditor">
+          <div class="alert alert-brand">
+            <i data-icon="info"></i>
+            <div class="alert-body">
+              <b>Contenu de la checklist</b>
+              <span class="small">Les modifications s'appliquent à toutes les checklists, y compris celles déjà commencées. Chaque sujet garde son identifiant : le renommer ou le déplacer conserve les réponses déjà données ; le supprimer le retire de l'avancement (les anciennes réponses restent en base).</span>
+            </div>
+          </div>
+          <div id="editorSections" class="stack-lg"></div>
+          <div class="row-between" style="position:sticky;bottom:0;padding:14px 0;background:var(--bg);border-top:1px solid var(--border);z-index:5">
+            <button class="btn" type="button" id="addSectionBtn"><i data-icon="plus" class="icon-sm"></i> Ajouter une section</button>
+            <div class="row" style="gap:8px">
+              <span class="small" id="editorState"></span>
+              <button class="btn" type="button" id="cancelEditorBtn">Annuler</button>
+              <button class="btn btn-primary" type="button" id="saveEditorBtn"><i data-icon="check" class="icon-sm"></i> Enregistrer le contenu</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="stack-lg" id="integrationListPart">
         <div class="alert alert-brand">
           <i data-icon="link"></i>
           <div class="alert-body">
@@ -193,6 +218,7 @@
             </thead>
             <tbody id="integrationBody"></tbody>
           </table>
+        </div>
         </div>
       </section>
 
