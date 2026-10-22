@@ -1,0 +1,100 @@
+[
+  {
+    "id": "acces",
+    "name": "Accueil & accès",
+    "tag": "jour 1",
+    "items": [
+      "Compte Microsoft 365 polesud-it.fr actif + MFA configurée",
+      "Messagerie, Teams et canaux de l'équipe",
+      "Accès OneNote / documentation équipe (savoir où chercher avant de demander)",
+      "Poste de travail, VPN et accès distants",
+      "Téléphonie Ringover (ligne support, transfert, messagerie)",
+      "Outil de ticketing : créer, qualifier, affecter, clôturer un ticket"
+    ]
+  },
+  {
+    "id": "orga",
+    "name": "Organisation de l'équipe",
+    "tag": "semaine 1",
+    "items": [
+      "Planning et shifts 09h-17h / 12h-20h, rotation",
+      "Samedis travaillés et récup du vendredi",
+      "Pauses décalées : pas de trou de couverture",
+      "Procédure retard / absence : prévenir qui, comment, quand",
+      "Règles d'escalade vers le superviseur",
+      "Passation entre équipe matin et équipe soir"
+    ]
+  },
+  {
+    "id": "outils",
+    "name": "Outils transverses",
+    "tag": "semaines 1-2",
+    "items": [
+      "Active Directory : création, déblocage, reset mot de passe",
+      "Entra ID / Intune : état d'un poste, conformité, appareils",
+      "ManageEngine Endpoint Central : inventaire, déploiement, prise en main",
+      "Prise en main à distance des postes utilisateurs",
+      "Alertes ServiceNow et astreinte (fonctionnement des appels automatiques)",
+      "Rédaction d'une fiche de procédure dans la documentation"
+    ]
+  },
+  {
+    "id": "orchestra",
+    "name": "Orchestra",
+    "tag": "09h-20h · magasins",
+    "items": [
+      "Périmètre : magasins, siège, interlocuteurs",
+      "Réseau magasin : box, baie, switch, liens",
+      "Postes et périphériques magasin (caisse, imprimantes, TPE)",
+      "Incidents récurrents et procédures associées",
+      "Escalade vers les prestataires (opérateur, intervention sur site)",
+      "Carte interactive des magasins"
+    ]
+  },
+  {
+    "id": "aca",
+    "name": "ACA",
+    "tag": "09h-18h · lun-ven",
+    "items": [
+      "Périmètre, sites et interlocuteurs",
+      "Outils et accès spécifiques au contrat",
+      "Demandes courantes : comptes, droits, postes",
+      "Incidents récurrents et procédures associées",
+      "Escalade et contacts client"
+    ]
+  },
+  {
+    "id": "lbp",
+    "name": "La Banque Postale",
+    "tag": "08h-20h · mots de passe",
+    "items": [
+      "Périmètre du service et horaires",
+      "Vérification d'identité de l'appelant avant toute action",
+      "Réinitialisation de mot de passe : procédure complète",
+      "Déblocage de compte et cas particuliers",
+      "Traçabilité dans le ticket et escalade"
+    ]
+  },
+  {
+    "id": "smt",
+    "name": "SMT",
+    "tag": "check 19h10 quotidien",
+    "items": [
+      "Contenu du check de 19h10",
+      "Qui fait le check selon le planning",
+      "Que faire en cas d'anomalie : qui prévenir",
+      "Compte rendu du check"
+    ]
+  },
+  {
+    "id": "soft",
+    "name": "Savoir-être et autonomie",
+    "tag": "en continu",
+    "items": [
+      "Script d'accueil téléphonique et ton avec les utilisateurs",
+      "Recherche autonome avant escalade (doc, OneNote, web)",
+      "Mise à jour des tickets en temps réel",
+      "Usage du téléphone personnel pendant le service"
+    ]
+  }
+]

@@ -23,6 +23,7 @@
       <nav class="tabs hidden" id="tabs" role="tablist" style="margin-left:24px">
         <button class="tab" role="tab" aria-selected="true" data-view="quizzes" type="button"><i data-icon="list" class="icon-sm"></i> Questionnaires</button>
         <button class="tab" role="tab" aria-selected="false" data-view="results" type="button"><i data-icon="chart" class="icon-sm"></i> Résultats</button>
+        <button class="tab hidden" role="tab" aria-selected="false" data-view="integration" type="button" id="integrationTab"><i data-icon="clipboard" class="icon-sm"></i> Intégration</button>
         <button class="tab hidden" role="tab" aria-selected="false" data-view="admins" type="button" id="adminsTab"><i data-icon="shield" class="icon-sm"></i> Admins</button>
       </nav>
       <div class="header-actions">
@@ -170,6 +171,31 @@
         </div>
       </section>
 
+      <!-- Checklists d'intégration (super admin uniquement) -->
+      <section id="view-integration" class="hidden stack-lg">
+        <div>
+          <h1>Intégration des techniciens</h1>
+          <p class="muted" style="margin-top:4px">Suivi des checklists remplies par les nouveaux techniciens. Mise à jour en temps réel.</p>
+        </div>
+        <div class="alert alert-brand">
+          <i data-icon="link"></i>
+          <div class="alert-body">
+            <b>Lien à envoyer au nouveau technicien</b>
+            <code class="small" id="integrationLink" style="overflow-wrap:anywhere;user-select:all"></code>
+            <span class="small">Page cachée (absente des menus et des moteurs de recherche). Le technicien saisit son nom puis reçoit son lien personnel pour revenir compléter sa checklist.</span>
+          </div>
+          <button class="btn btn-sm" type="button" id="copyIntegrationLinkBtn"><i data-icon="copy" class="icon-sm"></i> Copier</button>
+        </div>
+        <div class="table-wrap">
+          <table class="table">
+            <thead>
+              <tr><th>Technicien</th><th>Arrivée</th><th>Avancement</th><th>Détail</th><th>Mise à jour</th><th></th></tr>
+            </thead>
+            <tbody id="integrationBody"></tbody>
+          </table>
+        </div>
+      </section>
+
       <!-- Comptes administrateurs (super admin uniquement) -->
       <section id="view-admins" class="hidden stack-lg">
         <div class="row-between">
@@ -276,6 +302,17 @@
         <button class="btn btn-primary" id="saveAdminBtn" value="save">Créer le compte</button>
       </div>
     </form>
+  </dialog>
+  <!-- Détail d'une checklist d'intégration -->
+  <dialog class="modal modal-lg" id="integrationDialog">
+    <div class="modal-head">
+      <div id="integrationHead"></div>
+      <div class="row" style="gap:6px;flex-wrap:nowrap">
+        <button class="btn btn-sm" type="button" id="copyBilanBtn"><i data-icon="copy" class="icon-sm"></i> Copier le bilan</button>
+        <button class="btn btn-ghost btn-icon" type="button" id="integrationClose" aria-label="Fermer"><i data-icon="x"></i></button>
+      </div>
+    </div>
+    <div class="modal-body" id="integrationDetail"></div>
   </dialog>
 </body>
 </html>

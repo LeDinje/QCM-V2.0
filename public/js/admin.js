@@ -9,6 +9,7 @@ import { auth, db, collection, doc, getDoc, addDoc, setDoc, updateDoc, deleteDoc
          serverTimestamp, writeBatch, deleteField, onAuthStateChanged, adminLogin, adminLogout, uploadImage } from "./common.js";
 import { esc, icon, initPage, toast, confirmDialog, fmtDuration, toDate, levelClass } from "./ui.js";
 import { startAdmins, stopAdmins } from "./admins.js";
+import { startIntegration, stopIntegration } from "./integration-admin.js";
 
 initPage();
 
@@ -24,7 +25,9 @@ let currentQuizId = null;
 const unsubs = [];             // écoutes globales
 const questionUnsubs = {};     // quizId -> écoute des questions
 let booted = false;
-let isSuper = false;           // super admin : accès à l'onglet « Admins »
+let isSuper = false;           // super admin : accès aux onglets « Intégration » et « Admins »
+const SUPER_VIEWS = ["integration", "admins"];
+const HASHES = { results: "#resultats", integration: "#integration", admins: "#admins" };
 
 // ---------- Connexion ----------
 const AUTH_ERRORS = {
@@ -37,13 +40,13 @@ const AUTH_ERRORS = {
 };
 
 function showView(name) {
-  if (name === "admins" && !isSuper) name = "quizzes";
-  ["auth", "loading", "quizzes", "results", "admins"].forEach((v) => $("view-" + v).classList.toggle("hidden", v !== name));
-  const inApp = name === "quizzes" || name === "results" || name === "admins";
+  if (SUPER_VIEWS.includes(name) && !isSuper) name = "quizzes";
+  ["auth", "loading", "quizzes", "results", "integration", "admins"].forEach((v) => $("view-" + v).classList.toggle("hidden", v !== name));
+  const inApp = ["quizzes", "results", "integration", "admins"].includes(name);
   $("tabs").classList.toggle("hidden", !inApp);
   $("logoutBtn").classList.toggle("hidden", !inApp);
   document.querySelectorAll(".tab").forEach((t) => t.setAttribute("aria-selected", t.dataset.view === name ? "true" : "false"));
-  if (inApp) history.replaceState(null, "", name === "results" ? "#resultats" : name === "admins" ? "#admins" : "#");
+  if (inApp) history.replaceState(null, "", HASHES[name] || "#");
 }
 
 $("loginForm").addEventListener("submit", async (e) => {
@@ -79,9 +82,10 @@ onAuthStateChanged(auth, async (user) => {
     .catch((e) => console.warn("[lastLogin]", e));
   isSuper = me.role === "superadmin";
   $("adminsTab").classList.toggle("hidden", !isSuper);
-  if (isSuper) startAdmins(user);
+  $("integrationTab").classList.toggle("hidden", !isSuper);
+  if (isSuper) { startAdmins(user); startIntegration(); }
   boot();
-  showView(location.hash === "#resultats" ? "results" : location.hash === "#admins" ? "admins" : "quizzes");
+  showView(Object.keys(HASHES).find((k) => HASHES[k] === location.hash) || "quizzes");
 });
 
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => {
@@ -91,8 +95,10 @@ document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () 
 
 function teardown() {
   stopAdmins();
+  stopIntegration();
   isSuper = false;
   $("adminsTab").classList.add("hidden");
+  $("integrationTab").classList.add("hidden");
   unsubs.splice(0).forEach((u) => u());
   Object.keys(questionUnsubs).forEach((k) => { questionUnsubs[k](); delete questionUnsubs[k]; });
   booted = false;
