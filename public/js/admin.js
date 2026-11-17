@@ -701,15 +701,16 @@ function openDetail(r) {
                  : typeof k !== "number" ? '<span class="badge">?</span>'
                  : good ? '<span class="badge badge-success">' + icon("check", "icon-sm") + "</span>"
                  : '<span class="badge badge-danger">' + icon("x", "icon-sm") + "</span>";
+    const answerCls = a.chosenIndex === "other" || typeof k !== "number" || !(typeof a.chosenIndex === "number" && a.chosenIndex >= 0) ? "" : good ? "ans-ok" : "ans-ko";
     return "<tr><td class=\"muted\">" + (i + 1) + "</td>" +
-      '<td style="min-width:220px">' + esc(a.questionText || "(?)") + (a.flagged ? ' <span class="badge badge-warn">' + icon("flag", "icon-sm") + "</span>" : "") + "</td>" +
-      "<td>" + label(opts, a.chosenIndex, a.otherText) + "</td>" +
-      "<td" + (good ? ' class="muted"' : "") + ">" + (typeof k === "number" ? esc(opts[k]) : "—") + "</td>" +
-      '<td class="num muted">' + (a.timeMs ? fmtDuration(a.timeMs) : "—") + "</td>" +
-      '<td class="num">' + (a.focusLosses ? '<span class="badge badge-warn">' + a.focusLosses + " · " + Math.round((a.offWindowMs || 0) / 1000) + " s</span>" : '<span class="muted">0</span>') + "</td>" +
-      "<td>" + status + "</td></tr>";
+      "<td>" + status + "</td>" +
+      '<td class="col-q">' + esc(a.questionText || "(?)") + (a.flagged ? ' <span class="badge badge-warn">' + icon("flag", "icon-sm") + "</span>" : "") + "</td>" +
+      '<td class="col-a' + (answerCls ? " " + answerCls : "") + '">' + label(opts, a.chosenIndex, a.otherText) + "</td>" +
+      '<td class="col-a' + (good ? " muted" : "") + '">' + (typeof k === "number" ? esc(opts[k]) : "—") + "</td>" +
+      '<td class="num" style="white-space:nowrap"><span class="muted">' + (a.timeMs ? fmtDuration(a.timeMs) : "—") + "</span>" +
+        (a.focusLosses ? '<div style="margin-top:4px"><span class="badge badge-warn" title="Sorties de fenêtre">' + a.focusLosses + " sortie" + (a.focusLosses > 1 ? "s" : "") + " · " + Math.round((a.offWindowMs || 0) / 1000) + " s</span></div>" : "") + "</td></tr>";
   }).join("");
-  $("detailBody").innerHTML = '<div class="table-wrap"><table class="table"><thead><tr><th>#</th><th>Question</th><th>Réponse donnée</th><th>Bonne réponse</th><th class="num">Temps</th><th class="num">Sorties</th><th></th></tr></thead><tbody>' +
-    (body || '<tr><td colspan="7" class="muted">Aucun détail enregistré.</td></tr>') + "</tbody></table></div>";
+  $("detailBody").innerHTML = '<div class="table-wrap"><table class="table detail-table"><thead><tr><th>#</th><th>Résultat</th><th>Question</th><th>Réponse donnée</th><th>Bonne réponse</th><th class="num" title="Temps passé et sorties de fenêtre">Temps</th></tr></thead><tbody>' +
+    (body || '<tr><td colspan="6" class="muted">Aucun détail enregistré.</td></tr>') + "</tbody></table></div>";
   dDialog.showModal();
 }
